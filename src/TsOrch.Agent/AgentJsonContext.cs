@@ -8,7 +8,8 @@ public sealed record class ServiceImageHistory(string Active, string? Previous);
 
 public sealed record class ImageState(
     IReadOnlyDictionary<string, ServiceImageHistory> Services,
-    IReadOnlyList<string> Pulled);
+    IReadOnlyList<string> Pulled,
+    IReadOnlyDictionary<string, DateTimeOffset>? PulledAt = null);
 
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,

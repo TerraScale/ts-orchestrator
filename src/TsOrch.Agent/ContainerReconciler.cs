@@ -1,4 +1,6 @@
 using System.Collections.Concurrent;
+using System.Net;
+using System.Net.Sockets;
 using System.Threading.Channels;
 using Microsoft.Extensions.Hosting;
 
@@ -20,6 +22,7 @@ public sealed class ContainerReconciler(
     ContainerSwapper swapper,
     PlacementTracker tracker,
     ImageHistoryStore images,
+    ImageGarbageCollector imageGarbageCollector,
     HostMetricsCollector metrics,
     AgentOptions options,
     TimeProvider timeProvider,
@@ -43,15 +46,18 @@ public sealed class ContainerReconciler(
     private long _desiredRevision = long.MinValue;
     private string? _nodeId;
     private string? _region;
+    private string? _vcnIp;
+    private string? _netBirdIp;
 
-    public void SetNodeIdentity(string nodeId, string region)
+    public void SetNodeIdentity(string nodeId, HostIdentity identity)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
-        ArgumentException.ThrowIfNullOrWhiteSpace(region);
+        ArgumentNullException.ThrowIfNull(identity);
         lock (_desiredGate)
         {
             _nodeId = nodeId;
-            _region = region;
+            _region = identity.Region;
+            _vcnIp = identity.VcnIp;
         }
     }
 
@@ -162,6 +168,7 @@ public sealed class ContainerReconciler(
     protected override Task ExecuteAsync(CancellationToken stoppingToken) =>
         Task.WhenAll(
             ReconcileLoopAsync(stoppingToken),
+            CollectImagesAsync(stoppingToken),
             TickAsync(options.ReconcileInterval, Signal, stoppingToken),
             TickAsync(
                 options.SecretCheckInterval,
@@ -171,6 +178,23 @@ public sealed class ContainerReconciler(
                     Signal();
                 },
                 stoppingToken));
+
+    private async Task CollectImagesAsync(CancellationToken cancellationToken)
+    {
+        using var timer = new PeriodicTimer(options.ImageGcInterval, timeProvider);
+        while (await timer.WaitForNextTickAsync(cancellationToken))
+        {
+            await _reconcileGate.WaitAsync(cancellationToken);
+            try
+            {
+                await imageGarbageCollector.CollectAsync(cancellationToken);
+            }
+            finally
+            {
+                _reconcileGate.Release();
+            }
+        }
+    }
 
     private void Signal() => _signals.Writer.TryWrite(new ReconcileSignal());
 
@@ -227,15 +251,31 @@ public sealed class ContainerReconciler(
 
     private async Task<string?> ReconcileAsync(IReadOnlyList<DesiredPlacement> desired, IReadOnlyList<ManagedContainer> containers, CancellationToken cancellationToken)
     {
+        string? vcnIp;
+        lock (_desiredGate)
+        {
+            vcnIp = _vcnIp;
+        }
+
+        if (!IPAddress.TryParse(vcnIp, out var address) || address.Equals(IPAddress.Any) || address.Equals(IPAddress.IPv6Any))
+        {
+            return $"Node VCN address '{vcnIp}' must be a concrete IP address.";
+        }
+
+        var observedNetBirdIp = IPAddress.IsLoopback(address) ? null : NodeReportComposer.FindNetBirdIpv4();
+        var network = ResolvePlacementNetwork(address, observedNetBirdIp, containers);
         var byPlacement = containers
             .GroupBy(static container => container.PlacementId, StringComparer.Ordinal)
             .ToDictionary(static group => group.Key, static group => (IReadOnlyList<ManagedContainer>)[.. group], StringComparer.Ordinal);
+        var desiredIds = desired.Select(static placement => placement.PlacementId).ToHashSet(StringComparer.Ordinal);
+        var retainedIds = byPlacement.Keys.Concat(desiredIds).ToHashSet(StringComparer.Ordinal);
+        secrets.DeleteOrphanedPlacements(retainedIds);
+
         await Parallel.ForEachAsync(
             desired,
             new ParallelOptions { MaxDegreeOfParallelism = MaxParallelPlacements, CancellationToken = cancellationToken },
-            async (placement, placementToken) => await ReconcilePlacementAsync(placement, byPlacement.GetValueOrDefault(placement.PlacementId) ?? [], placementToken));
+            async (placement, placementToken) => await ReconcilePlacementAsync(placement, byPlacement.GetValueOrDefault(placement.PlacementId) ?? [], network, placementToken));
 
-        var desiredIds = desired.Select(static placement => placement.PlacementId).ToHashSet(StringComparer.Ordinal);
         foreach (var (placementId, orphaned) in byPlacement)
         {
             if (desiredIds.Contains(placementId))
@@ -250,6 +290,30 @@ public sealed class ContainerReconciler(
 
         return null;
     }
+
+    private PlacementNetwork ResolvePlacementNetwork(IPAddress address, string? observedNetBirdIp, IReadOnlyList<ManagedContainer> containers)
+    {
+        var vcnIp = address.ToString();
+        if (IPAddress.IsLoopback(address))
+        {
+            return new PlacementNetwork(vcnIp, null);
+        }
+
+        _netBirdIp = ValidNetBirdIp(observedNetBirdIp) ?? _netBirdIp
+            ?? containers.OrderByDescending(static container => container.Running)
+                .ThenByDescending(static container => container.Created)
+                .Select(static container => ValidNetBirdIp(container.NetBirdIp))
+                .FirstOrDefault(static ip => ip is not null);
+        return new PlacementNetwork(vcnIp, _netBirdIp == vcnIp ? null : _netBirdIp);
+    }
+
+    private static string? ValidNetBirdIp(string? value) =>
+        IPAddress.TryParse(value, out var address)
+            && address.AddressFamily == AddressFamily.InterNetwork
+            && !address.Equals(IPAddress.Any)
+            && !IPAddress.IsLoopback(address)
+            ? address.ToString()
+            : null;
 
     private void CompleteRetirement(string placementId, PlacementRetirement outcome)
     {
@@ -269,7 +333,7 @@ public sealed class ContainerReconciler(
         }
     }
 
-    private async Task ReconcilePlacementAsync(DesiredPlacement placement, IReadOnlyList<ManagedContainer> existing, CancellationToken cancellationToken)
+    private async Task ReconcilePlacementAsync(DesiredPlacement placement, IReadOnlyList<ManagedContainer> existing, PlacementNetwork network, CancellationToken cancellationToken)
     {
         if (!AgentNames.IsSafeToken(placement.PlacementId))
         {
@@ -277,10 +341,27 @@ public sealed class ContainerReconciler(
             return;
         }
 
+        if (placement.Service.Port > 0 && !ContainerSwapper.TryReadyPath(placement.Service.ReadyPath, out _))
+        {
+            var invalid = new InvalidPlacementReadyPath(placement.Service.ReadyPath);
+            if (swapper.FindServing(placement, existing) is { } serving)
+            {
+                await tracker.ReportAsync(
+                    swapper.ServingReport(serving, placement.Service) with { CandidateImage = placement.Service.Image, CandidateError = invalid.Message },
+                    cancellationToken);
+            }
+            else
+            {
+                await ReportFailureAsync(placement, string.Empty, invalid.Message, cancellationToken);
+            }
+
+            return;
+        }
+
         var outcome = await secrets.ResolveAsync(placement.Service, cancellationToken);
         await (outcome switch
         {
-            ResolvedServiceSecrets resolved => ApplyAsync(placement, existing, resolved, cancellationToken),
+            ResolvedServiceSecrets resolved => ApplyAsync(placement, existing, network, resolved, cancellationToken),
             InvalidSecretName failure => SecretsUnavailableAsync(placement, existing, failure.Message, cancellationToken),
             SecretNameCollision failure => SecretsUnavailableAsync(placement, existing, failure.Message, cancellationToken),
             InvalidServiceSecretReference failure => SecretsUnavailableAsync(placement, existing, failure.Message, cancellationToken),
@@ -303,14 +384,14 @@ public sealed class ContainerReconciler(
         await ReportFailureAsync(placement, string.Empty, reason, cancellationToken);
     }
 
-    private async Task ApplyAsync(DesiredPlacement placement, IReadOnlyList<ManagedContainer> existing, ResolvedServiceSecrets resolved, CancellationToken cancellationToken)
+    private async Task ApplyAsync(DesiredPlacement placement, IReadOnlyList<ManagedContainer> existing, PlacementNetwork network, ResolvedServiceSecrets resolved, CancellationToken cancellationToken)
     {
         var service = placement.Service;
-        var configHash = ConfigHashCalculator.Compute(service, resolved.Versions);
+        var configHash = ConfigHashCalculator.Compute(service, resolved.Versions, network);
         var current = existing.FirstOrDefault(container => container.Running && container.Image == service.Image && container.ConfigHash == configHash);
         if (current is not null)
         {
-            await KeepCurrentAsync(placement, current, existing, cancellationToken);
+            await KeepCurrentAsync(placement, current, existing, network.VcnIp, cancellationToken);
             return;
         }
 
@@ -319,7 +400,23 @@ public sealed class ContainerReconciler(
             return;
         }
 
-        var outcome = await BuildPlanAsync(placement, configHash, resolved, cancellationToken);
+        if (service.ClusterPeers && network.NetBirdIp is { } netBirdIp && NodeReportComposer.FindNetBirdIpv4() != netBirdIp)
+        {
+            AgentLog.WaitingForNetBirdBinding(logger, placement.PlacementId, netBirdIp);
+            if (swapper.FindServing(placement, existing) is { } serving)
+            {
+                await tracker.ReportAsync(swapper.ServingReport(serving, service), cancellationToken);
+            }
+            else
+            {
+                await tracker.ReportAsync(new PlacementReport(placement.PlacementId, service.Name, PlacementState.Pending, service.Image,
+                    configHash, Error: $"Waiting for the NetBird bind address {netBirdIp}."), cancellationToken);
+            }
+
+            return;
+        }
+
+        var outcome = await BuildPlanAsync(placement, configHash, resolved, network, cancellationToken);
         var task = outcome switch
         {
             PlacementPlan plan => SwapAsync(placement, plan, existing, cancellationToken),
@@ -339,7 +436,7 @@ public sealed class ContainerReconciler(
         var keep = outcome switch
         {
             PlacementPromoted promoted => await SwappedAsync(placement, promoted.LiveConfigurations, promoted.PulledImage, cancellationToken),
-            InvalidPlacementPort or PlacementDrainPending or PlacementImagePullFailed or PlacementCreateFailed or PlacementStartFailed or PlacementProbeFailed
+            InvalidPlacementPort or InvalidPlacementReadyPath or PlacementDrainPending or PlacementImagePullFailed or PlacementCreateFailed or PlacementStartFailed or PlacementProbeFailed
                 => SwapFailed(placement, plan.ConfigHash, existing),
         };
         secrets.DeleteStaleGenerations(placement.PlacementId, keep);
@@ -384,7 +481,7 @@ public sealed class ContainerReconciler(
         }
     }
 
-    private async Task KeepCurrentAsync(DesiredPlacement placement, ManagedContainer current, IReadOnlyList<ManagedContainer> existing, CancellationToken cancellationToken)
+    private async Task KeepCurrentAsync(DesiredPlacement placement, ManagedContainer current, IReadOnlyList<ManagedContainer> existing, string vcnIp, CancellationToken cancellationToken)
     {
         var report = ContainerSwapper.ReadyReport(current, placement.Service);
         if (tracker.Find(placement.PlacementId) != report)
@@ -394,21 +491,24 @@ public sealed class ContainerReconciler(
                 await tracker.ReportAsync(swapper.ServingReport(serving, placement.Service), cancellationToken);
             }
 
-            var readiness = await swapper.WaitReadyAsync(current.Id, placement.Service, cancellationToken, allowExistingRestarts: true);
-            var ready = readiness switch
+            var readiness = await swapper.WaitReadyAsync(current.Id, placement.Service, vcnIp, cancellationToken, allowExistingRestarts: true);
+            var (ports, failure) = readiness switch
             {
-                PlacementPorts ports => report with { HostPort = ports.Http, PostgresHostPort = ports.Postgres, InternalHostPort = ports.Internal },
-                PlacementProbeFailed => null,
+                PlacementPorts ready => (ready, (PlacementProbeFailed?)null),
+                PlacementProbeFailed failed => ((PlacementPorts?)null, failed),
             };
-            if (ready is null)
+            if (failure is not null)
             {
                 await swapper.StopAndRemoveAsync(current.Id, cancellationToken);
-                await SecretsUnavailableAsync(placement, [.. existing.Where(container => container.Id != current.Id)], "Interrupted candidate failed readiness.", cancellationToken);
+                await SecretsUnavailableAsync(placement, [.. existing.Where(container => container.Id != current.Id)], failure.Message, cancellationToken);
                 Signal();
                 return;
             }
 
-            report = ready;
+            if (ports is { } readyPorts)
+            {
+                report = report with { HostPort = readyPorts.Http, PostgresHostPort = readyPorts.Postgres, InternalHostPort = readyPorts.Internal };
+            }
             await tracker.ReportAsync(report, cancellationToken);
         }
 
@@ -423,6 +523,7 @@ public sealed class ContainerReconciler(
         DesiredPlacement placement,
         string configHash,
         ResolvedServiceSecrets resolved,
+        PlacementNetwork network,
         CancellationToken cancellationToken)
     {
         var service = placement.Service;
@@ -475,13 +576,13 @@ public sealed class ContainerReconciler(
 
         if (service.Secrets.Count == 0 && service.ConfigFiles is not { Count: > 0 })
         {
-            return new PlacementPlan(placement, configHash, env, mounts);
+            return new PlacementPlan(placement, configHash, env, mounts, network);
         }
 
         var outcome = await secrets.MaterializeAsync(placement.PlacementId, configHash, service, resolved, cancellationToken);
         return outcome switch
         {
-            SecretMounts secretMounts => WithSecrets(placement, configHash, env, mounts, secretMounts),
+            SecretMounts secretMounts => WithSecrets(placement, configHash, env, mounts, network, secretMounts),
             InvalidConfigFileTarget invalid => invalid,
             ConfigFileSecretMissing missing => missing,
             AtomicWriteFailed failure => failure,
@@ -516,6 +617,7 @@ public sealed class ContainerReconciler(
         string configHash,
         Dictionary<string, string> env,
         List<BindMount> mounts,
+        PlacementNetwork network,
         SecretMounts secretMounts)
     {
         foreach (var (name, value) in secretMounts.Env)
@@ -527,7 +629,7 @@ public sealed class ContainerReconciler(
         }
 
         mounts.AddRange(secretMounts.Mounts);
-        return new PlacementPlan(placement, configHash, env, mounts);
+        return new PlacementPlan(placement, configHash, env, mounts, network);
     }
 
     private async Task ReportFailureAsync(DesiredPlacement placement, string configHash, string reason, CancellationToken cancellationToken)

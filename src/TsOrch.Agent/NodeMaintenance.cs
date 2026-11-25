@@ -48,6 +48,12 @@ public sealed record class AgentBundleDownloadTimedOut(string Message);
 public readonly union AgentUpgrade(AgentUpgradeCompleted, AgentUpgradeAlreadyCurrent, AgentUpgradeRejected, AgentUpgradeIoFailed,
     AgentBundleUnavailable, AgentBundleDownloadTimedOut, MaintenanceToolTimedOut, MaintenanceToolUnavailable);
 
+internal sealed record class GrowthDevice(MountEntry Mount, string Device, string Disk, string? Partition);
+
+internal readonly record struct DedicatedVolumeAbsent;
+
+internal readonly union VolumeGrowthTarget(GrowthDevice, DedicatedVolumeAbsent, VolumeGrowthRejected, VolumeGrowthFailed);
+
 internal readonly record struct AgentBundleVerified;
 
 internal readonly record struct AgentBundleExtracted;
@@ -124,6 +130,7 @@ public sealed class NodeMaintenance(
     public const string DownloadClientName = "ts-orch-download";
     public const int UpgradeExitCode = 75;
     private const int QueueCapacity = 16;
+    private const int MaxBundleBytes = 128 * 1024 * 1024;
     private static readonly TimeSpan ToolTimeout = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan DownloadTimeout = TimeSpan.FromMinutes(10);
 
@@ -172,7 +179,8 @@ public sealed class NodeMaintenance(
         CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
-        if (string.IsNullOrWhiteSpace(mountPath) || !Path.IsPathFullyQualified(mountPath) || Path.GetFullPath(mountPath) != mountPath.TrimEnd('/'))
+        if (string.IsNullOrWhiteSpace(mountPath) || mountPath.Contains('\0', StringComparison.Ordinal)
+            || !Path.IsPathFullyQualified(mountPath) || Path.GetFullPath(mountPath) != mountPath.TrimEnd('/'))
         {
             return new VolumeGrowthRejected($"Mount path {mountPath} must be an absolute normalized path.");
         }
@@ -182,53 +190,84 @@ public sealed class NodeMaintenance(
             return new VolumeMountMissing($"Mount path {mountPath} does not exist.");
         }
 
-        var mounts = await MountTable.ReadAsync(cancellationToken);
-        var mount = MountTable.FindContaining(mounts, mountPath);
-        if (mount is null || mount.MountPoint != mountPath || !mount.Device.StartsWith("/dev/", StringComparison.Ordinal))
+        var target = await InspectVolumeGrowthAsync(mountPath, cancellationToken);
+        return target switch
         {
-            AgentLog.VolumeGrowSkipped(logger, mountPath);
-            return new VolumeGrown(nodeId, mountPath, SizeGiB(mountPath));
+            GrowthDevice device => await GrowDeviceAsync(nodeId, mountPath, device, cancellationToken),
+            DedicatedVolumeAbsent => SkipGrowth(nodeId, mountPath),
+            VolumeGrowthRejected failure => failure,
+            VolumeGrowthFailed failure => failure,
+        };
+    }
+
+    private static async Task<VolumeGrowthTarget> InspectVolumeGrowthAsync(string mountPath, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var mounts = await MountTable.ReadAsync(cancellationToken);
+            var mount = MountTable.FindContaining(mounts, mountPath);
+            if (mount is null || mount.MountPoint != mountPath || !mount.Device.StartsWith("/dev/", StringComparison.Ordinal))
+            {
+                return new DedicatedVolumeAbsent();
+            }
+
+            var device = new FileInfo(mount.Device).ResolveLinkTarget(returnFinalTarget: true)?.FullName ?? mount.Device;
+            var disk = Path.GetFileName(device);
+            var sysBlock = Path.Combine("/sys/class/block", disk);
+            if (!Directory.Exists(sysBlock))
+            {
+                return new VolumeGrowthRejected($"Block device {device} is not visible under /sys/class/block.");
+            }
+
+            string? partition = null;
+            var partitionFile = Path.Combine(sysBlock, "partition");
+            if (File.Exists(partitionFile))
+            {
+                if (Path.GetFileName(Path.GetDirectoryName(new DirectoryInfo(sysBlock).ResolveLinkTarget(returnFinalTarget: true)?.FullName)) is not { Length: > 0 } parent)
+                {
+                    return new VolumeGrowthFailed($"Cannot resolve the parent disk of {device}.");
+                }
+
+                disk = parent;
+                partition = (await File.ReadAllTextAsync(partitionFile, cancellationToken)).Trim();
+            }
+
+            var rescan = Path.Combine("/sys/class/block", disk, "device", "rescan");
+            if (File.Exists(rescan))
+            {
+                await File.WriteAllTextAsync(rescan, "1", cancellationToken);
+            }
+
+            return new GrowthDevice(mount, device, disk, partition);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return new VolumeGrowthFailed($"Reading or rescanning the block device for {mountPath} failed: {exception.Message}");
+        }
+    }
+
+    private async Task<VolumeGrowth> GrowDeviceAsync(string nodeId, string mountPath, GrowthDevice device, CancellationToken cancellationToken)
+    {
+        if (device.Partition is not { } partition)
+        {
+            return await ResizeAsync(nodeId, mountPath, device.Mount, device.Device, cancellationToken);
         }
 
-        var device = new FileInfo(mount.Device).ResolveLinkTarget(returnFinalTarget: true)?.FullName ?? mount.Device;
-        var deviceName = Path.GetFileName(device);
-        var sysBlock = Path.Combine("/sys/class/block", deviceName);
-        if (!Directory.Exists(sysBlock))
-        {
-            return new VolumeGrowthRejected($"Block device {device} is not visible under /sys/class/block.");
-        }
-
-        var partitionFile = Path.Combine(sysBlock, "partition");
-        var isPartition = File.Exists(partitionFile);
-        var diskName = isPartition
-            ? Path.GetFileName(Path.GetDirectoryName(new DirectoryInfo(sysBlock).ResolveLinkTarget(returnFinalTarget: true)?.FullName))
-            : deviceName;
-        if (diskName is null)
-        {
-            return new VolumeGrowthFailed($"Cannot resolve the parent disk of {device}.");
-        }
-
-        var rescan = Path.Combine("/sys/class/block", diskName, "device", "rescan");
-        if (File.Exists(rescan))
-        {
-            await File.WriteAllTextAsync(rescan, "1", cancellationToken);
-        }
-
-        if (!isPartition)
-        {
-            return await ResizeAsync(nodeId, mountPath, mount, device, cancellationToken);
-        }
-
-        var partitionNumber = (await File.ReadAllTextAsync(partitionFile, cancellationToken)).Trim();
-        var outcome = await ProcessRunner.RunAsync("growpart", [$"/dev/{diskName}", partitionNumber], ToolTimeout, timeProvider, cancellationToken);
+        var outcome = await ProcessRunner.RunAsync("growpart", [$"/dev/{device.Disk}", partition], ToolTimeout, timeProvider, cancellationToken);
         return outcome switch
         {
-            ProcessOutput { ExitCode: 0 } => await ResizeAsync(nodeId, mountPath, mount, device, cancellationToken),
-            ProcessOutput output when output.Stdout.Contains("NOCHANGE", StringComparison.Ordinal) => await ResizeAsync(nodeId, mountPath, mount, device, cancellationToken),
+            ProcessOutput { ExitCode: 0 } => await ResizeAsync(nodeId, mountPath, device.Mount, device.Device, cancellationToken),
+            ProcessOutput output when output.Stdout.Contains("NOCHANGE", StringComparison.Ordinal) => await ResizeAsync(nodeId, mountPath, device.Mount, device.Device, cancellationToken),
             ProcessOutput output => new VolumeGrowthFailed($"growpart failed with {output.ExitCode}: {output.Stderr.Trim()}"),
             MaintenanceToolTimedOut failure => failure,
             MaintenanceToolUnavailable failure => failure,
         };
+    }
+
+    private VolumeGrowth SkipGrowth(string nodeId, string mountPath)
+    {
+        AgentLog.VolumeGrowSkipped(logger, mountPath);
+        return MeasureVolume(nodeId, mountPath, logGrowth: false);
     }
 
     public async Task<AgentUpgrade> UpgradeAgentAsync(
@@ -281,11 +320,23 @@ public sealed class NodeMaintenance(
         }
         finally
         {
+            CleanupBundle(bundle);
+        }
+    }
+
+    private void CleanupBundle(UpgradeBundle bundle)
+    {
+        try
+        {
             File.Delete(bundle.Archive);
             if (Directory.Exists(bundle.Staging))
             {
                 Directory.Delete(bundle.Staging, recursive: true);
             }
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            AgentLog.UpgradeCleanupFailed(logger, bundle.Version, exception.Message);
         }
     }
 
@@ -321,18 +372,29 @@ public sealed class NodeMaintenance(
         var outcome = await ProcessRunner.RunAsync(tool, arguments, ToolTimeout, timeProvider, cancellationToken);
         return outcome switch
         {
-            ProcessOutput { ExitCode: 0 } => Grown(nodeId, mountPath),
+            ProcessOutput { ExitCode: 0 } => MeasureVolume(nodeId, mountPath, logGrowth: true),
             ProcessOutput output => new VolumeGrowthFailed($"Resizing {mount.FileSystem} on {mountPath} failed with {output.ExitCode}: {output.Stderr.Trim()}"),
             MaintenanceToolTimedOut failure => failure,
             MaintenanceToolUnavailable failure => failure,
         };
     }
 
-    private VolumeGrown Grown(string nodeId, string mountPath)
+    private VolumeGrowth MeasureVolume(string nodeId, string mountPath, bool logGrowth)
     {
-        var size = SizeGiB(mountPath);
-        AgentLog.VolumeGrown(logger, mountPath, size);
-        return new VolumeGrown(nodeId, mountPath, size);
+        try
+        {
+            var size = (int)Math.Round(new DriveInfo(mountPath).TotalSize / (1024d * 1024d * 1024d));
+            if (logGrowth)
+            {
+                AgentLog.VolumeGrown(logger, mountPath, size);
+            }
+
+            return new VolumeGrown(nodeId, mountPath, size);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return new VolumeGrowthFailed($"Measuring {mountPath} failed: {exception.Message}");
+        }
     }
 
     private async Task ReportDrainCompleteAsync(string nodeId, CancellationToken cancellationToken)
@@ -417,6 +479,11 @@ public sealed class NodeMaintenance(
                 return new AgentBundleUnavailable(string.Create(CultureInfo.InvariantCulture, $"Agent bundle download returned {(int)response.StatusCode}."));
             }
 
+            if (response.Content.Headers.ContentLength > MaxBundleBytes)
+            {
+                return BundleTooLarge();
+            }
+
             using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
             await using (var input = await response.Content.ReadAsStreamAsync(linked.Token))
             await using (var output = new FileStream(destination, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, FileOptions.Asynchronous))
@@ -425,6 +492,11 @@ public sealed class NodeMaintenance(
                 int read;
                 while ((read = await input.ReadAsync(buffer, linked.Token)) > 0)
                 {
+                    if (output.Position + read > MaxBundleBytes)
+                    {
+                        return BundleTooLarge();
+                    }
+
                     hash.AppendData(buffer, 0, read);
                     await output.WriteAsync(buffer.AsMemory(0, read), linked.Token);
                 }
@@ -449,6 +521,9 @@ public sealed class NodeMaintenance(
             return new AgentBundleDownloadTimedOut("Agent bundle download timed out.");
         }
     }
+
+    private static AgentUpgradeRejected BundleTooLarge() =>
+        new(string.Create(CultureInfo.InvariantCulture, $"Agent bundle exceeds {MaxBundleBytes} bytes."));
 
     private static async Task<AgentBundleExtraction> ExtractAsync(UpgradeBundle bundle, CancellationToken cancellationToken)
     {
@@ -583,8 +658,6 @@ public sealed class NodeMaintenance(
         var link = new FileInfo(options.CurrentReleaseLink);
         return link.LinkTarget is { } target ? Path.GetFullPath(target, options.InstallDirectory) : null;
     }
-
-    private static int SizeGiB(string path) => (int)Math.Round(new DriveInfo(path).TotalSize / (1024d * 1024d * 1024d));
 
     private sealed record class UpgradeBundle(string Version, string Archive, string Staging, string ReleaseDirectory, string? PreviousRelease);
 }

@@ -44,6 +44,9 @@ internal static partial class AgentLog
     [LoggerMessage(1013, LogLevel.Debug, "Reading failure logs for container {ContainerId} failed: {Reason}")]
     public static partial void FailureLogReadFailed(ILogger logger, string containerId, string reason);
 
+    [LoggerMessage(1014, LogLevel.Warning, "Waiting for NetBird address {Address} before replacing placement {PlacementId}")]
+    public static partial void WaitingForNetBirdBinding(ILogger logger, string placementId, string address);
+
     [LoggerMessage(1100, LogLevel.Warning, "Image GC failed: {Reason}")]
     public static partial void ImageGcFailed(ILogger logger, string reason);
 
@@ -70,6 +73,15 @@ internal static partial class AgentLog
 
     [LoggerMessage(1310, LogLevel.Warning, "Refreshing systemd units after agent upgrade failed: {Reason}")]
     public static partial void SystemdReloadFailed(ILogger logger, string reason);
+
+    [LoggerMessage(1311, LogLevel.Warning, "Cleaning up agent bundle {Version} failed: {Reason}")]
+    public static partial void UpgradeCleanupFailed(ILogger logger, string version, string reason);
+
+    [LoggerMessage(1204, LogLevel.Warning, "Cleaning up Docker exec {ExecId} failed: {Reason}")]
+    public static partial void ExecCleanupFailed(ILogger logger, string execId, string reason);
+
+    [LoggerMessage(1203, LogLevel.Warning, "Cleaning up secret files under {Directory} failed: {Reason}")]
+    public static partial void SecretCleanupFailed(ILogger logger, string directory, string reason);
 
     [LoggerMessage(1202, LogLevel.Warning, "Docker OOM event subscription interrupted: {Reason}")]
     public static partial void OomSubscriptionInterrupted(ILogger logger, string reason);
@@ -103,9 +115,6 @@ internal static partial class AgentLog
 
     [LoggerMessage(1402, LogLevel.Warning, "Stored enrollment is unusable, re-enrolling: {Reason}")]
     public static partial void EnrollmentStateCorrupt(ILogger logger, string reason);
-
-    [LoggerMessage(1403, LogLevel.Warning, "Backplane rejected the node token; credentials removed for re-enrollment")]
-    public static partial void CredentialsForgotten(ILogger logger);
 
     [LoggerMessage(1404, LogLevel.Error, "Enrollment failed ({Code}): {Reason}")]
     public static partial void EnrollFailed(ILogger logger, string code, string reason);

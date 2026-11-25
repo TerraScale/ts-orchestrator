@@ -61,7 +61,7 @@ public sealed record class MetricsPoint1m(
     double CpuAvg,
     double CpuP95,
     double CpuPsiAvg,
-    int MemAvgMiB,
+    double MemAvgMiB,
     double DiskPct,
     double EdgeRps,
     double Edge5xx,

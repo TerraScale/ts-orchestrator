@@ -75,13 +75,6 @@ public sealed class NodeEnrollment(
     private async Task<NodeEnrollmentOutcome> ResumeOrEnrollAsync(HostIdentity identity, CancellationToken cancellationToken) =>
         await LoadAsync(identity, cancellationToken) is { } session ? Loaded(session) : await EnrollAsync(identity, cancellationToken);
 
-    public void Forget()
-    {
-        File.Delete(options.NodeTokenFile);
-        File.Delete(options.NodeStateFile);
-        AgentLog.CredentialsForgotten(logger);
-    }
-
     private NodeSession Loaded(NodeSession stored)
     {
         AgentLog.EnrollmentLoaded(logger, stored.NodeId);

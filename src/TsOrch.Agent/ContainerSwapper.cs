@@ -6,11 +6,14 @@ using TsOrch.Oci;
 
 namespace TsOrch.Agent;
 
+public sealed record class PlacementNetwork(string VcnIp, string? NetBirdIp);
+
 public sealed record class PlacementPlan(
     DesiredPlacement Desired,
     string ConfigHash,
     IReadOnlyDictionary<string, string> Env,
-    IReadOnlyList<BindMount> Mounts)
+    IReadOnlyList<BindMount> Mounts,
+    PlacementNetwork Network)
 {
     public ServiceSpec Service => Desired.Service;
 
@@ -26,6 +29,11 @@ public sealed record class InvalidPlacementPort(string PlacementId, int Port)
     public string Message => string.Create(CultureInfo.InvariantCulture, $"Host port {Port} for {PlacementId} is outside the TCP port range.");
 }
 
+public sealed record class InvalidPlacementReadyPath(string ReadyPath)
+{
+    public string Message => $"Readiness path '{ReadyPath}' must be a relative HTTP path starting with a single slash.";
+}
+
 public sealed record class PlacementDrainPending(string PlacementId);
 
 public sealed record class PlacementImagePullFailed(string Image, string Message);
@@ -37,10 +45,10 @@ public sealed record class PlacementStartFailed(string ContainerId, string Messa
 public sealed record class PlacementProbeFailed(string ContainerId, string Message);
 
 public readonly union PlacementSwap(
-    PlacementPromoted, InvalidPlacementPort, PlacementDrainPending, PlacementImagePullFailed,
+    PlacementPromoted, InvalidPlacementPort, InvalidPlacementReadyPath, PlacementDrainPending, PlacementImagePullFailed,
     PlacementCreateFailed, PlacementStartFailed, PlacementProbeFailed);
 
-internal readonly union PlacementBindings(IReadOnlyList<PortMapping>, InvalidPlacementPort);
+internal readonly union PlacementBindings(IReadOnlyList<PortMapping>, InvalidPlacementPort, InvalidPlacementReadyPath);
 
 public sealed record class PlacementPorts(int? Http, int? Postgres, int? Internal = null);
 
@@ -95,11 +103,13 @@ public sealed class ContainerSwapper(
         {
             IReadOnlyList<PortMapping> ports => await PullAndStartAsync(plan, existing, serving, ports, onImagePulled, cancellationToken),
             InvalidPlacementPort invalid => (PlacementSwap)invalid,
+            InvalidPlacementReadyPath invalid => (PlacementSwap)invalid,
         };
         var message = outcome switch
         {
             PlacementPromoted => null,
             InvalidPlacementPort invalid => invalid.Message,
+            InvalidPlacementReadyPath invalid => invalid.Message,
             PlacementDrainPending pending => $"Edge has not removed the routes for {pending.PlacementId}.",
             PlacementImagePullFailed failed => failed.Message,
             PlacementCreateFailed failed => failed.Message,
@@ -418,7 +428,9 @@ public sealed class ContainerSwapper(
             plan.Service.Image, options.LabelPrefix, plan.PlacementId, plan.Service.Name, plan.ConfigHash,
             plan.Env, plan.Mounts, plan.Service.Args, ports, ContainerResources.For(plan.Service, options.EnableCgroupParent),
             Stateful: plan.Service.Mode == PlacementMode.Stateful,
-            PullImage: pulledImage);
+            CapAdd: ContainerCapabilities(plan.Service),
+            PullImage: pulledImage,
+            NetBirdIp: plan.Service.ClusterPeers ? plan.Network.NetBirdIp : null);
         var created = await docker.CreateContainerAsync(spec, cancellationToken);
         return created switch
         {
@@ -430,6 +442,11 @@ public sealed class ContainerSwapper(
         };
     }
 
+    private static IReadOnlyList<string> ContainerCapabilities(ServiceSpec service) =>
+        service.Name == "netbird-dashboard"
+            ? ["CHOWN", "DAC_OVERRIDE", "KILL", "NET_BIND_SERVICE", "SETGID", "SETUID"]
+            : [];
+
     private async Task<CandidateLaunch> StartAsync(PlacementPlan plan, string id, bool reportStarting, CancellationToken cancellationToken)
     {
         if (reportStarting)
@@ -440,7 +457,7 @@ public sealed class ContainerSwapper(
         var started = await docker.StartContainerAsync(id, cancellationToken);
         var outcome = started switch
         {
-            DockerRequestCompleted => await ProbeCandidateAsync(plan.Service, id, cancellationToken),
+            DockerRequestCompleted => await ProbeCandidateAsync(plan, id, cancellationToken),
             DockerResourceMissing failure => (CandidateLaunch)new PlacementStartFailed(id, failure.Message),
             DockerDaemonUnavailable failure => (CandidateLaunch)new PlacementStartFailed(id, failure.Message),
             DockerResponseInvalid failure => (CandidateLaunch)new PlacementStartFailed(id, failure.Message),
@@ -458,9 +475,9 @@ public sealed class ContainerSwapper(
         return outcome;
     }
 
-    private async Task<CandidateLaunch> ProbeCandidateAsync(ServiceSpec service, string id, CancellationToken cancellationToken)
+    private async Task<CandidateLaunch> ProbeCandidateAsync(PlacementPlan plan, string id, CancellationToken cancellationToken)
     {
-        var readiness = await WaitReadyAsync(id, service, cancellationToken);
+        var readiness = await WaitReadyAsync(id, plan.Service, plan.Network.VcnIp, cancellationToken);
         return readiness switch
         {
             PlacementPorts ports => new ReadyCandidate(ports),
@@ -491,7 +508,7 @@ public sealed class ContainerSwapper(
             };
             if (error is null)
             {
-                var readiness = await WaitReadyAsync(serving.Id, plan.Service, cancellationToken, allowExistingRestarts: true);
+                var readiness = await WaitReadyAsync(serving.Id, plan.Service, plan.Network.VcnIp, cancellationToken, allowExistingRestarts: true);
                 var restoredPorts = readiness switch
                 {
                     PlacementPorts ports => ports,
@@ -614,7 +631,23 @@ public sealed class ContainerSwapper(
     private static PlacementBindings BuildPorts(PlacementPlan plan)
     {
         var service = plan.Service;
-        List<PortMapping> ports = [.. service.UdpPorts.Select(static port => new PortMapping("0.0.0.0", port, port, PortProtocol.Udp))];
+        if (service.Port > 0 && !TryReadyPath(service.ReadyPath, out _))
+        {
+            return new InvalidPlacementReadyPath(service.ReadyPath);
+        }
+
+        var address = plan.Network.VcnIp;
+        var peerAddress = service.ClusterPeers && plan.Network.NetBirdIp != address ? plan.Network.NetBirdIp : null;
+        List<PortMapping> ports = [];
+        foreach (var port in service.UdpPorts)
+        {
+            ports.Add(new PortMapping(address, port, port, PortProtocol.Udp));
+            if (peerAddress is not null)
+            {
+                ports.Add(new PortMapping(peerAddress, port, port, PortProtocol.Udp));
+            }
+        }
+
         List<(int ContainerPort, int? HostPort)> tcp = [];
         if (service.Port > 0)
         {
@@ -633,31 +666,53 @@ public sealed class ContainerSwapper(
 
         foreach (var (containerPort, assignedPort) in tcp)
         {
-            var hostPort = plan.RequiresStopStart ? assignedPort : null;
-            if (hostPort is <= 0 or > IPEndPoint.MaxPort)
+            if (assignedPort is { } requested && requested is < 1 or > IPEndPoint.MaxPort)
             {
-                return new InvalidPlacementPort(plan.PlacementId, hostPort.GetValueOrDefault());
+                return new InvalidPlacementPort(plan.PlacementId, requested);
             }
 
-            ports.Add(new PortMapping("0.0.0.0", hostPort, containerPort, PortProtocol.Tcp));
+            var hostPort = plan.RequiresStopStart ? assignedPort : null;
+            ports.Add(new PortMapping(address, hostPort, containerPort, PortProtocol.Tcp));
+            if (peerAddress is not null && containerPort == service.InternalPort && hostPort.HasValue)
+            {
+                ports.Add(new PortMapping(peerAddress, hostPort, containerPort, PortProtocol.Tcp));
+            }
         }
 
         return ports;
     }
 
+    internal static bool TryReadyPath(string? value, out Uri? path)
+    {
+        var input = string.IsNullOrEmpty(value) ? "/" : value;
+        path = null;
+        return input[0] == '/'
+            && !input.StartsWith("//", StringComparison.Ordinal)
+            && !input.Any(static c => c is '\\' or '#' || char.IsWhiteSpace(c) || char.IsControl(c))
+            && Uri.TryCreate(input, UriKind.Relative, out path)
+            && path.IsWellFormedOriginalString();
+    }
+
     public async Task<PlacementReadiness> WaitReadyAsync(
         string containerId,
         ServiceSpec service,
+        string vcnIp,
         CancellationToken cancellationToken,
         bool allowExistingRestarts = false)
     {
         ArgumentNullException.ThrowIfNull(service);
+        Uri? readyPath = null;
+        if (service.Port > 0 && !TryReadyPath(service.ReadyPath, out readyPath))
+        {
+            return new PlacementProbeFailed(containerId, new InvalidPlacementReadyPath(service.ReadyPath).Message);
+        }
+
         var timeout = TimeSpan.FromSeconds(Math.Max(1, service.ReadyTimeoutSeconds));
         using var deadline = new CancellationTokenSource(timeout, timeProvider);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
         using var client = httpClientFactory.CreateClient(ProbeClientName);
         using var timer = new PeriodicTimer(ProbeInterval, timeProvider);
-        var readyPath = string.IsNullOrEmpty(service.ReadyPath) ? "/" : service.ReadyPath;
+
         int? initialRestartCount = allowExistingRestarts ? null : 0;
         string? inspectionError = null;
         try
@@ -691,10 +746,13 @@ public sealed class ContainerSwapper(
                 if (state.Container is { } running)
                 {
                     var ports = Ports(running.Ports, service);
-                    var httpReady = service.Port <= 0 || ports.Http is { } http && await ProbeHttpAsync(client, http, readyPath, linked.Token);
-                    var postgresReady = service.Postgres is null || ports.Postgres is { } postgres && await ProbeTcpAsync(postgres, linked.Token);
+                    var httpReady = service.Port <= 0 || readyPath is not null
+                        && TcpEndpoint(running.Ports, service.Port, vcnIp) is { } http
+                        && await ProbeHttpAsync(client, http, readyPath, linked.Token);
+                    var postgresReady = service.Postgres is not { } pg || TcpEndpoint(running.Ports, pg.Port, vcnIp) is { } postgres
+                        && await ProbeTcpAsync(postgres, linked.Token);
                     var internalReady = service.InternalPort is not { } ip || ip <= 0
-                        || ports.Internal is { } internalPort && (ip == service.Port || await ProbeTcpAsync(internalPort, linked.Token));
+                        || TcpEndpoint(running.Ports, ip, vcnIp) is { } internalEndpoint && (ip == service.Port || await ProbeTcpAsync(internalEndpoint, linked.Token));
                     if (httpReady && postgresReady && internalReady)
                     {
                         return ports;
@@ -815,9 +873,29 @@ public sealed class ContainerSwapper(
             ports.Postgres,
             desired.Service.InternalPort is > 0 ? ports.Internal : null);
 
-    private static async Task<bool> ProbeHttpAsync(HttpClient client, int hostPort, string readyPath, CancellationToken cancellationToken)
+    private static IPEndPoint? TcpEndpoint(IReadOnlyList<PublishedPort> ports, int containerPort, string vcnIp)
     {
-        var uri = new Uri(string.Create(CultureInfo.InvariantCulture, $"http://127.0.0.1:{hostPort}{readyPath}"));
+        var candidates = ports.Where(port => port.ContainerPort == containerPort && port.Protocol == PortProtocol.Tcp);
+        var mapping = candidates.FirstOrDefault(port => port.HostIp == vcnIp) ?? candidates.FirstOrDefault();
+        if (mapping is null || mapping.HostPort is < 1 or > IPEndPoint.MaxPort || !IPAddress.TryParse(mapping.HostIp, out var bound))
+        {
+            return null;
+        }
+
+        var address = bound.Equals(IPAddress.Any) ? IPAddress.Loopback
+            : bound.Equals(IPAddress.IPv6Any) ? IPAddress.IPv6Loopback
+            : bound;
+        return new IPEndPoint(address, mapping.HostPort);
+    }
+
+    private static async Task<bool> ProbeHttpAsync(HttpClient client, IPEndPoint endpoint, Uri readyPath, CancellationToken cancellationToken)
+    {
+        var authority = new UriBuilder(Uri.UriSchemeHttp, endpoint.Address.ToString(), endpoint.Port).Uri;
+        if (!Uri.TryCreate(authority, readyPath, out var uri))
+        {
+            return false;
+        }
+
         try
         {
             using var response = await client.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
@@ -833,12 +911,12 @@ public sealed class ContainerSwapper(
         }
     }
 
-    private static async Task<bool> ProbeTcpAsync(int hostPort, CancellationToken cancellationToken)
+    private static async Task<bool> ProbeTcpAsync(IPEndPoint endpoint, CancellationToken cancellationToken)
     {
         try
         {
-            using var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-            await socket.ConnectAsync(IPAddress.Loopback, hostPort, cancellationToken);
+            using var socket = new Socket(endpoint.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+            await socket.ConnectAsync(endpoint, cancellationToken);
             return true;
         }
         catch (SocketException)

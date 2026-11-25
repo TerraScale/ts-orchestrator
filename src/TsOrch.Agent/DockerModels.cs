@@ -75,7 +75,9 @@ public sealed record class DockerContainerSpec(
     IReadOnlyList<PortMapping> Ports,
     ContainerResources Resources,
     bool Stateful,
-    string? PullImage = null);
+    IReadOnlyList<string> CapAdd,
+    string? PullImage = null,
+    string? NetBirdIp = null);
 
 public sealed record class PublishedPort(string HostIp, int HostPort, int ContainerPort, PortProtocol Protocol);
 
@@ -91,7 +93,8 @@ public sealed record class ManagedContainer(
     IReadOnlyList<PublishedPort> Ports,
     bool? Stateful,
     long Created = 0,
-    string? PulledImage = null);
+    string? PulledImage = null,
+    string? NetBirdIp = null);
 
 public sealed record class ContainerState(
     string Id,
@@ -105,8 +108,7 @@ public sealed record class ContainerState(
 public sealed record class DockerImage(
     string Id,
     IReadOnlyList<string> RepoTags,
-    IReadOnlyList<string> RepoDigests,
-    DateTimeOffset Created);
+    IReadOnlyList<string> RepoDigests);
 
 public sealed record class ContainerStatsSample(
     long CpuTotalNanos,
@@ -133,6 +135,8 @@ public static class ContainerLabels
     public static string Stateful(string prefix) => $"{prefix}.stateful";
 
     public static string Image(string prefix) => $"{prefix}.image";
+
+    public static string NetBirdIp(string prefix) => $"{prefix}.netbird-ip";
 }
 
 internal sealed record class DockerEmpty;
@@ -152,7 +156,11 @@ internal sealed record class DockerHostConfig(
     long CpuShares,
     long PidsLimit,
     int OomScoreAdj,
-    DockerRestartPolicy RestartPolicy);
+    DockerRestartPolicy RestartPolicy,
+    IReadOnlyList<string> CapDrop,
+    IReadOnlyList<string> CapAdd,
+    IReadOnlyList<string> SecurityOpt,
+    bool Init);
 
 internal sealed record class DockerCreateContainerRequest(
     string Image,
@@ -189,14 +197,13 @@ internal sealed record class DockerContainerInspect(
 internal sealed record class DockerImageSummary(
     string Id,
     IReadOnlyList<string>? RepoTags,
-    IReadOnlyList<string>? RepoDigests,
-    long Created);
+    IReadOnlyList<string>? RepoDigests);
 
 internal sealed record class DockerExecCreateRequest(bool AttachStdout, bool AttachStderr, bool AttachStdin, IReadOnlyList<string> Cmd);
 
 internal sealed record class DockerExecStartRequest(bool Detach, bool Tty);
 
-internal sealed record class DockerExecInspect(bool Running, int? ExitCode);
+internal sealed record class DockerExecInspect(bool Running, int? ExitCode, int Pid = 0);
 
 internal sealed record class DockerErrorDetail([property: JsonPropertyName("message")] string? Message);
 

@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Threading.Channels;
 
 namespace TsOrch.Agent;
 
@@ -19,14 +20,15 @@ public sealed class ContainerSessions(
     private readonly ConcurrentDictionary<string, CancellationTokenSource> _logStreams = [with(StringComparer.Ordinal)];
     private int _active;
 
-    public async ValueTask StartLogsAsync(StreamLogs request, CancellationToken cancellationToken)
+    public async ValueTask StartLogsAsync(StreamLogs request, ChannelWriter<LogChunk> followedLogs, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
+        var writer = request.Follow ? followedLogs : null;
         var source = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         if (!_logStreams.TryAdd(request.RequestId, source))
         {
             source.Dispose();
-            await outbox.EnqueueAsync(new LogChunk(request.RequestId, LogChannel.Stderr, $"ts-orch: log stream {request.RequestId} is already running."), cancellationToken);
+            await QueueLogAsync(writer, new LogChunk(request.RequestId, LogChannel.Stderr, $"ts-orch: log stream {request.RequestId} is already running."), cancellationToken);
             return;
         }
 
@@ -34,11 +36,11 @@ public sealed class ContainerSessions(
         {
             _logStreams.TryRemove(request.RequestId, out _);
             source.Dispose();
-            await outbox.EnqueueAsync(new LogChunk(request.RequestId, LogChannel.Stderr, "ts-orch: too many concurrent sessions on this node."), cancellationToken);
+            await QueueLogAsync(writer, new LogChunk(request.RequestId, LogChannel.Stderr, "ts-orch: too many concurrent sessions on this node."), cancellationToken);
             return;
         }
 
-        Track(request.RequestId, RunLogsAsync(request, source));
+        Track(request.RequestId, RunLogsAsync(request, writer, source));
     }
 
     public ValueTask StopLogsAsync(StopLogs request)
@@ -89,7 +91,7 @@ public sealed class ContainerSessions(
             TaskContinuationOptions.ExecuteSynchronously,
             TaskScheduler.Default);
 
-    private async Task RunLogsAsync(StreamLogs request, CancellationTokenSource source)
+    private async Task RunLogsAsync(StreamLogs request, ChannelWriter<LogChunk>? writer, CancellationTokenSource source)
     {
         try
         {
@@ -97,14 +99,14 @@ public sealed class ContainerSessions(
             var outcome = await FindContainerAsync(request.ContainerName, cancellationToken);
             var failure = outcome switch
             {
-                ManagedContainer container => await ForwardLogsAsync(request, container, cancellationToken),
+                ManagedContainer container => await ForwardLogsAsync(request, container, writer, cancellationToken),
                 SessionContainerMissing findFailure => findFailure.Message,
                 DockerDaemonUnavailable findFailure => findFailure.Message,
                 DockerResponseInvalid findFailure => findFailure.Message,
             };
             if (failure is not null)
             {
-                await outbox.EnqueueAsync(new LogChunk(request.RequestId, LogChannel.Stderr, $"ts-orch: {failure}"), cancellationToken);
+                await QueueLogAsync(writer, new LogChunk(request.RequestId, LogChannel.Stderr, $"ts-orch: {failure}"), cancellationToken);
             }
         }
         catch (OperationCanceledException) when (source.IsCancellationRequested)
@@ -118,10 +120,10 @@ public sealed class ContainerSessions(
         }
     }
 
-    private async Task<string?> ForwardLogsAsync(StreamLogs request, ManagedContainer container, CancellationToken cancellationToken)
+    private async Task<string?> ForwardLogsAsync(StreamLogs request, ManagedContainer container, ChannelWriter<LogChunk>? writer, CancellationToken cancellationToken)
     {
         var streamed = await docker.StreamLogsAsync(container.Id, Math.Clamp(request.Tail, 0, MaxTail), request.Follow,
-            (channel, line, lineToken) => outbox.EnqueueAsync(new LogChunk(request.RequestId, channel, line), lineToken),
+            (channel, line, lineToken) => QueueLogAsync(writer, new LogChunk(request.RequestId, channel, line), lineToken),
             cancellationToken);
         return streamed switch
         {
@@ -131,6 +133,9 @@ public sealed class ContainerSessions(
             DockerResponseInvalid failure => failure.Message,
         };
     }
+
+    private ValueTask QueueLogAsync(ChannelWriter<LogChunk>? followedLogs, LogChunk chunk, CancellationToken cancellationToken) =>
+        followedLogs is null ? outbox.EnqueueAsync(chunk, cancellationToken) : followedLogs.WriteAsync(chunk, cancellationToken);
 
     private async Task RunExecAsync(ExecCommand request, CancellationToken cancellationToken)
     {

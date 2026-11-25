@@ -159,34 +159,30 @@ public sealed class OciRegistryAuthClient(
                 };
             }
 
-            var response = await OciHttp.SendAsync(httpClient, request, cancellationToken);
+            var response = await OciHttp.SendAsync(httpClient, environment, request, cancellationToken);
             if (response is OciHttpRejected { Status: HttpStatusCode.Unauthorized } && attempt == 0)
             {
                 await principal.InvalidateSessionAsync(cancellationToken);
                 continue;
             }
 
-            if (response is OciPayload payload)
+            var decoded = response switch
             {
-                var decoded = Decode(payload.Body, host);
-                if (decoded is RegistryAuthDenied { Status: HttpStatusCode.Unauthorized } && attempt == 0)
-                {
-                    await principal.InvalidateSessionAsync(cancellationToken);
-                    continue;
-                }
-
-                return decoded;
-            }
-
-            return response switch
-            {
+                OciPayload payload => Decode(payload.Body, host),
                 OciHttpRejected { Status: HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden } rejected => new RegistryAuthDenied(host, rejected.Status, rejected.Message),
                 OciHttpRejected { Status: HttpStatusCode.TooManyRequests or >= HttpStatusCode.InternalServerError } rejected => new RegistryAuthUnavailable(host, rejected.Message),
                 OciHttpRejected rejected => new RegistryAuthInvalid(host, rejected.Message),
                 OciConnectionLost lost => new RegistryAuthUnavailable(host, lost.Message),
+                OciResponseTooLarge failure => new RegistryAuthInvalid(host, failure.Message),
                 OciResponseTimedOut => new RegistryAuthUnavailable(host, $"OCIR token request to {host} timed out."),
-                _ => new RegistryAuthUnavailable(host, $"OCIR token request to {host} failed."),
             };
+            if (decoded is RegistryAuthDenied { Status: HttpStatusCode.Unauthorized } && attempt == 0)
+            {
+                await principal.InvalidateSessionAsync(cancellationToken);
+                continue;
+            }
+
+            return decoded;
         }
 
         return new RegistryAuthUnavailable(host, $"OCIR token request to {host} exhausted retries.");
