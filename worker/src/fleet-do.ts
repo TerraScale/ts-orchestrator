@@ -923,6 +923,11 @@ export class FleetDO extends DurableObject<Env> {
     if (!nodeColumns.some((column) => column.name === "enrolled_at")) {
       this.sql.exec("ALTER TABLE nodes ADD COLUMN enrolled_at INTEGER NOT NULL DEFAULT 0");
       this.sql.exec("UPDATE nodes SET enrolled_at = ? WHERE status = 'pending' AND enrolled_at = 0", Date.now());
+      this.sql.exec(
+        `UPDATE nodes SET labels_json = json_set(labels_json, '$."oci.instance-pool-id"', (SELECT r.instance_pool_id FROM regions r WHERE r.label = nodes.region))
+         WHERE pool_kind = 'worker' AND json_extract(labels_json, '$."oci.instance-pool-id"') IS NULL
+           AND EXISTS (SELECT 1 FROM regions r WHERE r.label = nodes.region AND r.instance_pool_id IS NOT NULL AND r.instance_pool_id != '')`,
+      );
     }
     const challengeColumns = this.sql.exec<{ name: string }>("PRAGMA table_info(auth_challenges)").toArray();
     if (!challengeColumns.some((column) => column.name === "client_ip")) {
@@ -1429,13 +1434,12 @@ export class FleetDO extends DurableObject<Env> {
     const poolId = poolKind === "worker" && regionRow.instance_pool_id !== null && regionRow.instance_pool_id.length > 0 ? regionRow.instance_pool_id : null;
     if (poolId !== null && instanceId.startsWith("ocid1.instance.") && !localDevAllowed(url, this.env)) {
       const oci = await this.oci();
-      if (oci !== null) {
-        const members = await oci.listInstancePoolInstances(regionRow.oci_region, poolId, regionRow.compartment_id);
-        if (this.regionPoolId(region) !== poolId || !members.some(({ id }) => id === instanceId)) {
-          throw new HttpError(409, "conflict", "Instance is not a member of the region's configured worker pool");
-        }
-        labels[INSTANCE_POOL_ID_LABEL] = poolId;
+      if (oci === null) throw new HttpError(503, "unavailable", "OCI credentials are not configured");
+      const members = await oci.listInstancePoolInstances(regionRow.oci_region, poolId, regionRow.compartment_id);
+      if (this.regionPoolId(region) !== poolId || !members.some(({ id }) => id === instanceId)) {
+        throw new HttpError(409, "conflict", "Instance is not a member of the region's configured worker pool");
       }
+      labels[INSTANCE_POOL_ID_LABEL] = poolId;
     } else if (poolId !== null) {
       labels[INSTANCE_POOL_ID_LABEL] = poolId;
     }
@@ -1489,7 +1493,7 @@ export class FleetDO extends DurableObject<Env> {
         this.loadNodeRow(row.id)?.token_hash !== row.token_hash) {
       return errorJson(401, "unauthorized", "Invalid node token", "Re-enroll the node.");
     }
-    if (this.nodeReapingOrReaped(row, Date.now())) throw terminating();
+    if (this.nodeBlocked(row, Date.now())) throw terminating();
     for (const ws of this.sockets(row.id)) this.closeSocket(ws, 4001, "replaced");
     const pair = new WebSocketPair();
     const client = pair[0];
@@ -1524,7 +1528,7 @@ export class FleetDO extends DurableObject<Env> {
         this.execWaiters.get(parsed.requestId)?.nodeId !== attachment.nodeId)) return;
     const now = Date.now();
     const sender = this.loadNodeRow(attachment.nodeId);
-    if (sender === undefined || this.nodeReapingOrReaped(sender, now)) {
+    if (sender === undefined || this.nodeBlocked(sender, now)) {
       this.closeSocket(ws, 4010, "terminating");
       return;
     }
@@ -2703,7 +2707,8 @@ export class FleetDO extends DurableObject<Env> {
     if (this.env.LOCAL_DEV === "true") return listed;
     const enrolledBefore = now - POOL_ENROLLMENT_GRACE_MS;
     const agedRegions = new Set(this.sql.exec<{ region: string }>(
-      "SELECT DISTINCT region FROM nodes WHERE pool_kind = 'worker' AND status = 'pending' AND enrolled_at <= ?",
+      `SELECT DISTINCT n.region AS region FROM nodes n JOIN regions r ON r.label = n.region
+       WHERE n.pool_kind = 'worker' AND n.status = 'pending' AND n.enrolled_at <= ? AND json_extract(n.labels_json, '$."oci.instance-pool-id"') = r.instance_pool_id`,
       enrolledBefore,
     ).toArray().map(({ region }) => region));
     if (agedRegions.size === 0) return listed;
@@ -2751,6 +2756,21 @@ export class FleetDO extends DurableObject<Env> {
     });
   }
 
+  private retireObsoletePendingWorkers(region: string, poolId: string): void {
+    this.deleteState(poolEnrollmentFailureKey(region));
+    const obsolete = this.sql.exec<{ id: string }>(
+      `SELECT id FROM nodes WHERE region = ? AND pool_kind = 'worker' AND status = 'pending'
+         AND coalesce(json_extract(labels_json, '$."oci.instance-pool-id"'), '') != ?`,
+      region,
+      poolId,
+    ).toArray();
+    for (const { id } of obsolete) {
+      for (const ws of this.sockets(id)) this.closeSocket(ws, 4010, "terminating");
+      this.deleteNodeRows(id);
+      this.recordEvent("node_lost", id, { poolId, reason: "pool_replaced" }, region);
+    }
+  }
+
   private regionPoolId(region: string): string | null {
     return this.sql.exec<{ instance_pool_id: string | null }>("SELECT instance_pool_id FROM regions WHERE label = ?", region).toArray()[0]?.instance_pool_id ?? null;
   }
@@ -2759,9 +2779,13 @@ export class FleetDO extends DurableObject<Env> {
     return this.reapingInstances.has(instanceId) || (this.getState<number>(reapedInstanceKey(instanceId)) ?? 0) > now;
   }
 
-  private nodeReapingOrReaped(row: NodeRow, now: number): boolean {
-    const instanceId = parseJson<Record<string, string>>(row.labels_json, {})[INSTANCE_ID_LABEL];
-    return instanceId !== undefined && this.isReapingOrReaped(instanceId, now);
+  private nodeBlocked(row: NodeRow, now: number): boolean {
+    const labels = parseJson<Record<string, string>>(row.labels_json, {});
+    const instanceId = labels[INSTANCE_ID_LABEL];
+    if (instanceId !== undefined && this.isReapingOrReaped(instanceId, now)) return true;
+    if (row.pool_kind !== "worker" || row.status !== "pending") return false;
+    const currentPoolId = this.regionPoolId(row.region);
+    return currentPoolId !== null && currentPoolId.length > 0 && labels[INSTANCE_POOL_ID_LABEL] !== currentPoolId;
   }
 
   private recordWorkerJoin(region: string): void {
@@ -2809,8 +2833,9 @@ export class FleetDO extends DurableObject<Env> {
         const failureKey = poolEnrollmentFailureKey(action.region);
         const pool = await oci.getInstancePool(action.ociRegion, action.poolId);
         const registeredWorkers = this.sql.exec<{ n: number }>(
-          "SELECT COUNT(*) AS n FROM nodes WHERE region = ? AND pool_kind = 'worker' AND status NOT IN ('down', 'pending')",
+          `SELECT COUNT(*) AS n FROM nodes WHERE region = ? AND pool_kind = 'worker' AND status NOT IN ('down', 'pending') AND json_extract(labels_json, '$."oci.instance-pool-id"') = ?`,
           action.region,
+          action.poolId,
         ).one().n;
         const plan = planPoolScaleUp({
           ociPoolSize: pool.size,
@@ -2847,6 +2872,7 @@ export class FleetDO extends DurableObject<Env> {
         if (oci === null) return false;
         const row = this.loadNodeRow(action.nodeId);
         if (row === undefined || row.pool_kind !== "worker" || row.region !== action.region ||
+            parseJson<Record<string, string>>(row.labels_json, {})[INSTANCE_POOL_ID_LABEL] !== action.poolId ||
             await this.enrolledInstanceId(row) !== action.instanceId) return false;
         const current = this.loadNodeRow(action.nodeId);
         if (current === undefined || current.token_hash !== row.token_hash || current.drain_requested !== 1) return false;
@@ -3356,7 +3382,7 @@ export class FleetDO extends DurableObject<Env> {
               ? region.instancePoolId
               : null;
         const orderIndex = order.indexOf(region.label);
-        if (poolId !== null && this.regionPoolId(region.label) !== poolId) this.deleteState(poolEnrollmentFailureKey(region.label));
+        if (poolId !== null && this.regionPoolId(region.label) !== poolId) this.retireObsoletePendingWorkers(region.label, poolId);
         this.sql.exec(
           "INSERT INTO regions (label, oci_region, compartment_id, instance_pool_id, min_workers, max_workers, rollout_order, config_json, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(label) DO UPDATE SET oci_region = excluded.oci_region, compartment_id = excluded.compartment_id, instance_pool_id = COALESCE(excluded.instance_pool_id, regions.instance_pool_id), min_workers = excluded.min_workers, max_workers = excluded.max_workers, rollout_order = excluded.rollout_order, config_json = excluded.config_json, updated_at = excluded.updated_at",
           region.label,
@@ -3589,7 +3615,7 @@ export class FleetDO extends DurableObject<Env> {
   private async drainNode(nodeId: string, reason: string): Promise<NodeInfo> {
     const row = this.loadNodeRow(nodeId);
     if (row === undefined) throw new HttpError(404, "not_found", `Node ${nodeId} does not exist`);
-    if (this.nodeReapingOrReaped(row, Date.now())) throw terminating();
+    if (this.nodeBlocked(row, Date.now())) throw terminating();
     const status: NodeStatus = row.status === "down" ? "down" : row.status === "drained" ? "drained" : "draining";
     this.sql.exec("UPDATE nodes SET drain_requested = 1, drain_reason = ?, status = ? WHERE id = ?", reason, status, nodeId);
     this.send(nodeId, { type: "drain", reason });
@@ -3605,7 +3631,7 @@ export class FleetDO extends DurableObject<Env> {
     const row = this.loadNodeRow(nodeId);
     if (row === undefined) throw new HttpError(404, "not_found", `Node ${nodeId} does not exist`);
     const now = Date.now();
-    if (this.nodeReapingOrReaped(row, now)) throw terminating();
+    if (this.nodeBlocked(row, now)) throw terminating();
     const live = this.connected(nodeId) && now - row.last_seen_at <= DEFAULT_HEARTBEAT_TIMEOUT_MS;
     const status: NodeStatus = row.status === "pending" ? "pending" : live ? "active" : "down";
     this.sql.exec("UPDATE nodes SET drain_requested = 0, drain_reason = NULL, status = ? WHERE id = ?", status, nodeId);

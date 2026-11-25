@@ -333,12 +333,12 @@ function evaluatePools(input: AutoscaleInput, cooldowns: Map<string, number>): A
   const regions = [...input.regions].sort((a, b) => compareText(a.label, b.label));
   for (const region of regions) {
     const regionNodes = input.nodes.filter((node) => node.region === region.label);
-    const workers = regionNodes
-      .filter((node) => node.poolKind === "worker")
-      .sort((a, b) => compareText(a.id, b.id));
-    const observedWorkers = workers.filter((node) => node.status !== "down" && node.status !== "pending").length;
     const poolId = input.poolIds?.get(region.label);
     if (poolId === undefined) continue;
+    const workers = regionNodes
+      .filter((node) => node.poolKind === "worker" && node.labels[INSTANCE_POOL_ID_LABEL] === poolId)
+      .sort((a, b) => compareText(a.id, b.id));
+    const observedWorkers = workers.filter((node) => node.status !== "down" && node.status !== "pending").length;
     const upKey = poolScaleUpCooldownKey(region.label);
     const downKey = poolScaleDownCooldownKey(region.label);
     const unschedulable = input.unschedulable.filter((entry) => entry.region === region.label && entry.missing > 0);
