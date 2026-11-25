@@ -11,8 +11,12 @@ public sealed class EventKindJsonConverter : JsonConverter<EventKind>
         .Where(static kind => kind is not EventKind.Unknown)
         .ToFrozenDictionary(WireName, StringComparer.Ordinal);
 
-    public override EventKind Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
-        reader.GetString() is { } wire && Known.TryGetValue(wire, out var kind) ? kind : EventKind.Unknown;
+    public override EventKind Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) => reader.TokenType switch
+    {
+        JsonTokenType.String => reader.GetString() is { } wire && Known.TryGetValue(wire, out var kind) ? kind : EventKind.Unknown,
+        JsonTokenType.Null => EventKind.Unknown,
+        _ => throw new JsonException($"Expected an event kind string but found {reader.TokenType}."),
+    };
 
     public override void Write(Utf8JsonWriter writer, EventKind value, JsonSerializerOptions options) =>
         writer.WriteStringValue(WireName(value));

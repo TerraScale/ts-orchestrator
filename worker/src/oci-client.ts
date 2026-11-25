@@ -22,7 +22,7 @@ export class OciError extends Error {
 
 type Bytes = Uint8Array<ArrayBuffer>;
 type OciResponse = { data: unknown; headers: Headers };
-type PoolInstance = { id: string; state: string; createdAt: number };
+export type PoolInstance = { id: string; state: string; createdAt: number };
 
 function object(value: unknown): Record<string, unknown> | undefined {
   if (typeof value === "object" && value !== null && !Array.isArray(value)) return value as Record<string, unknown>;
