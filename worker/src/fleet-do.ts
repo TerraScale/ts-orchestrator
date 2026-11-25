@@ -2760,14 +2760,16 @@ export class FleetDO extends DurableObject<Env> {
     for (const region of due) {
       const poolId = region.instance_pool_id;
       if (poolId === null) continue;
+      const signal = this.poolSignal(region.label);
       try {
-        const members = await oci.listInstancePoolInstances(region.oci_region, poolId, region.compartment_id);
-        if (this.regionPoolId(region.label) !== poolId) continue;
+        const members = await oci.listInstancePoolInstances(region.oci_region, poolId, region.compartment_id, signal);
+        if (signal.aborted || this.regionPoolId(region.label) !== poolId) continue;
         listed.set(poolId, members);
         const memberIds = new Set(members.map(({ id }) => id));
         this.labelVerifiedWorkers(region.label, poolId, memberIds);
         this.sweepRegionOrphans(region.label, poolId, memberIds, enrolledBefore);
       } catch (error) {
+        if (signal.aborted || this.regionPoolId(region.label) !== poolId) continue;
         console.error("worker pool membership reconcile failed", region.label, error);
         this.setState("last_autoscale_error", { at: now, action: "reconcile_pool_membership", message: error instanceof Error ? error.message : String(error) });
       }
@@ -2807,6 +2809,7 @@ export class FleetDO extends DurableObject<Env> {
     const region = this.sql.exec<RegionRow>("SELECT * FROM regions WHERE label = ?", row.region).toArray()[0];
     if (poolId === null || region === undefined || !isRecord(parseJson<unknown>(row.labels_json, null))) return "not_member";
     const instanceId = parseLabels(row.labels_json)[INSTANCE_ID_LABEL];
+    if (instanceId === undefined || instanceId.length === 0) return "not_member";
     const concurrentlyVerified = (): boolean => {
       const latest = this.workerLabelRows(row.region).find(({ id }) => id === row.id);
       return latest !== undefined && latest.token_hash === row.token_hash && this.regionPoolId(row.region) === poolId &&
@@ -2993,7 +2996,10 @@ export class FleetDO extends DurableObject<Env> {
         if (row === undefined || row.pool_kind !== "worker" || row.region !== action.region ||
             parseLabels(row.labels_json)[INSTANCE_POOL_ID_LABEL] !== action.poolId) return false;
         await this.drainNode(action.nodeId, `autoscaler:${action.reason}`);
-        if (this.regionPoolId(action.region) !== action.poolId) return false;
+        const drained = this.loadNodeRow(action.nodeId);
+        if (this.regionPoolId(action.region) !== action.poolId || drained === undefined || drained.token_hash !== row.token_hash ||
+            drained.pool_kind !== "worker" || drained.region !== action.region ||
+            parseLabels(drained.labels_json)[INSTANCE_POOL_ID_LABEL] !== action.poolId) return false;
         cooldowns.set(poolScaleDownCooldownKey(action.region, action.poolId), now);
         return false;
       }
@@ -3015,7 +3021,8 @@ export class FleetDO extends DurableObject<Env> {
             throw error;
           },
         );
-        if (!detached || this.loadNodeRow(action.nodeId)?.token_hash !== row.token_hash) return false;
+        if (!detached || signal.aborted || this.regionPoolId(action.region) !== action.poolId ||
+            this.loadNodeRow(action.nodeId)?.token_hash !== row.token_hash) return false;
         for (const ws of this.sockets(action.nodeId)) this.closeSocket(ws, 4010, "terminated");
         this.ctx.storage.transactionSync(() => {
           this.deleteNodeRows(action.nodeId);

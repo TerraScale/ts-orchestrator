@@ -111,12 +111,12 @@ export class OciRestClient {
     return { size, state, etag };
   }
 
-  async listInstancePoolInstances(ociRegion: string, poolId: string, compartmentId: string): Promise<PoolInstance[]> {
+  async listInstancePoolInstances(ociRegion: string, poolId: string, compartmentId: string, abort?: AbortSignal): Promise<PoolInstance[]> {
     const query = new URLSearchParams({ compartmentId, limit: "50" });
     const instances: PoolInstance[] = [];
     const seenPages = new Set<string>();
     while (true) {
-      const { data, headers } = await this.#request(ociRegion, "GET", `/${API_VERSION}/instancePools/${encodeURIComponent(poolId)}/instances?${query}`);
+      const { data, headers } = await this.#request(ociRegion, "GET", `/${API_VERSION}/instancePools/${encodeURIComponent(poolId)}/instances?${query}`, undefined, undefined, abort);
       if (!Array.isArray(data)) throw new Error("OCI instance pool response is missing its member list");
       for (const entry of data) {
         const record = object(entry);
