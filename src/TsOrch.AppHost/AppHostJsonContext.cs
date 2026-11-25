@@ -15,7 +15,8 @@ internal sealed record class ImdsInstanceDocument(
     string CanonicalRegionName,
     string Shape,
     string State,
-    ImdsRegionInfoDocument RegionInfo);
+    ImdsRegionInfoDocument RegionInfo,
+    JsonObject Metadata);
 
 internal sealed record class ImdsVnicDocument(string VnicId, string PrivateIp, string MacAddr, string VirtualRouterIp, string SubnetCidrBlock);
 

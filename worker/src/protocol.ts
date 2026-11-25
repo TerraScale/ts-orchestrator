@@ -24,6 +24,7 @@ export type EventKind =
   | "replica_scale_down"
   | "pool_scale_up"
   | "pool_scale_down"
+  | "pool_scale_blocked"
   | "node_enrolled"
   | "node_connected"
   | "node_lost"

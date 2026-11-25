@@ -23,7 +23,6 @@ export type AutoscaleAction =
       ociRegion: string;
       compartmentId: string;
       poolId: string;
-      observedWorkers: number;
       maxSize: number;
       reason: string;
     }
@@ -62,6 +61,10 @@ export const VOLUME_COOLDOWN_MS = 1_800_000;
 export const HOT_CPU_PCT = 80;
 export const HOT_PSI = 25;
 export const HOT_MEM_RATIO = 0.85;
+export const POOL_HOT_PSI = 40;
+export const POOL_HOT_PSI_CPU_PCT = 60;
+export const POOL_ENROLLMENT_FAILURE_BACKOFF_MS = 21_600_000;
+export const OCI_POOL_RUNNING_STATE = "RUNNING";
 export const INSTANCE_ID_LABEL = "oci.instance-id";
 export const DATA_VOLUME_ID_LABEL = "oci.data-volume-id";
 
@@ -77,6 +80,49 @@ interface ReplicaSignals {
 
 function compareText(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
+}
+
+export type PoolScaleUpBlockReason =
+  | "pool_not_running"
+  | "unjoined_workers_pending"
+  | "enrollment_failure_backoff"
+  | "pool_at_max";
+
+export type PoolScaleUpPlan =
+  | { kind: "scale"; newSize: number }
+  | { kind: "blocked"; reason: PoolScaleUpBlockReason };
+
+export interface PoolScaleUpInput {
+  ociPoolSize: number;
+  ociPoolState: string;
+  registeredWorkers: number;
+  maxSize: number;
+  enrollmentFailedAt: number | undefined;
+  nowMs: number;
+}
+
+export function planPoolScaleUp(input: PoolScaleUpInput): PoolScaleUpPlan {
+  if (input.ociPoolState !== OCI_POOL_RUNNING_STATE) return { kind: "blocked", reason: "pool_not_running" };
+  if (input.ociPoolSize > input.registeredWorkers) return { kind: "blocked", reason: "unjoined_workers_pending" };
+  if (input.enrollmentFailedAt !== undefined && input.nowMs - input.enrollmentFailedAt < POOL_ENROLLMENT_FAILURE_BACKOFF_MS) {
+    return { kind: "blocked", reason: "enrollment_failure_backoff" };
+  }
+  const newSize = Math.min(input.maxSize, input.ociPoolSize + 1);
+  if (newSize <= input.ociPoolSize) return { kind: "blocked", reason: "pool_at_max" };
+  return { kind: "scale", newSize };
+}
+
+export function oldestUnjoinedMember<T extends { id: string; createdAt: number }>(
+  candidates: readonly T[],
+  enrolled: ReadonlySet<string | null>,
+): T | undefined {
+  return candidates
+    .filter(({ id }) => !enrolled.has(id))
+    .sort((a, b) => a.createdAt - b.createdAt || compareText(a.id, b.id))[0];
+}
+
+export function poolEnrollmentFailureKey(region: string): string {
+  return `pool_enrollment_failed_at:${region}`;
 }
 
 export function poolScaleUpCooldownKey(region: string): string {
@@ -222,7 +268,7 @@ function sustainedHot(nodes: NodeInfo[], metrics1m: MetricsPoint1m[], nowMs: num
     const cpu = average(bucket.map((point) => point.cpuAvg));
     const psi = average(bucket.map((point) => point.cpuPsiAvg));
     const mem = memTotal > 0 ? memUsed / memTotal : 0;
-    if (!(cpu > HOT_CPU_PCT || psi > HOT_PSI || mem > HOT_MEM_RATIO)) return false;
+    if (!(cpu > HOT_CPU_PCT || mem > HOT_MEM_RATIO || (psi > POOL_HOT_PSI && cpu > POOL_HOT_PSI_CPU_PCT))) return false;
   }
   return true;
 }
@@ -311,7 +357,6 @@ function evaluatePools(input: AutoscaleInput, cooldowns: Map<string, number>): A
           ociRegion: region.ociRegion,
           compartmentId: region.compartmentId,
           poolId,
-          observedWorkers,
           maxSize: region.pools.worker.max,
           reason,
         });

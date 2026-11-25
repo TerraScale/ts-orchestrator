@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace TsOrch.Oci;
@@ -9,7 +10,7 @@ internal sealed record class ImdsInstanceDocument(
     string FaultDomain,
     string Shape,
     ImdsRegionInfo RegionInfo,
-    IReadOnlyDictionary<string, string>? Metadata = null);
+    IReadOnlyDictionary<string, JsonElement>? Metadata = null);
 
 internal sealed record class ImdsRegionInfo(string RealmDomainComponent);
 

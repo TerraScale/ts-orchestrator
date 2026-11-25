@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Headers;
+using System.Text.Json;
 
 namespace TsOrch.Oci;
 
@@ -156,8 +157,8 @@ public sealed class OciImdsClient(HttpClient httpClient, OciEnvironment environm
         _ => null,
     };
 
-    private static string? NonEmpty(IReadOnlyDictionary<string, string>? metadata, string key) =>
-        metadata?.GetValueOrDefault(key) is { Length: > 0 } value ? value : null;
+    private static string? NonEmpty(IReadOnlyDictionary<string, JsonElement>? metadata, string key) =>
+        metadata?.GetValueOrDefault(key) is { ValueKind: JsonValueKind.String } value && value.GetString() is { Length: > 0 } text ? text : null;
 
     private async Task<ImdsRead> ReadAsync(string path, CancellationToken cancellationToken)
     {

@@ -72,6 +72,7 @@ public enum EventKind
     [JsonStringEnumMemberName("replica_scale_down")] ReplicaScaleDown,
     [JsonStringEnumMemberName("pool_scale_up")] PoolScaleUp,
     [JsonStringEnumMemberName("pool_scale_down")] PoolScaleDown,
+    [JsonStringEnumMemberName("pool_scale_blocked")] PoolScaleBlocked,
     [JsonStringEnumMemberName("node_enrolled")] NodeEnrolled,
     [JsonStringEnumMemberName("node_connected")] NodeConnected,
     [JsonStringEnumMemberName("node_lost")] NodeLost,
