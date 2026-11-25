@@ -88,7 +88,7 @@ internal static class WireNameExtensions
 
     extension(EventKind value)
     {
-        public string WireName => Encode(value, CliJsonContext.Default.EventKind);
+        public string WireName => EventKindJsonConverter.WireName(value);
     }
 
     extension(OperatorRole value)

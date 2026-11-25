@@ -22,7 +22,7 @@ export class OciError extends Error {
 
 type Bytes = Uint8Array<ArrayBuffer>;
 type OciResponse = { data: unknown; headers: Headers };
-type PoolInstance = { id: string; state: string; createdAt: number };
+export type PoolInstance = { id: string; state: string; createdAt: number };
 
 function object(value: unknown): Record<string, unknown> | undefined {
   if (typeof value === "object" && value !== null && !Array.isArray(value)) return value as Record<string, unknown>;
@@ -111,12 +111,12 @@ export class OciRestClient {
     return { size, state, etag };
   }
 
-  async listInstancePoolInstances(ociRegion: string, poolId: string, compartmentId: string): Promise<PoolInstance[]> {
+  async listInstancePoolInstances(ociRegion: string, poolId: string, compartmentId: string, abort?: AbortSignal): Promise<PoolInstance[]> {
     const query = new URLSearchParams({ compartmentId, limit: "50" });
     const instances: PoolInstance[] = [];
     const seenPages = new Set<string>();
     while (true) {
-      const { data, headers } = await this.#request(ociRegion, "GET", `/${API_VERSION}/instancePools/${encodeURIComponent(poolId)}/instances?${query}`);
+      const { data, headers } = await this.#request(ociRegion, "GET", `/${API_VERSION}/instancePools/${encodeURIComponent(poolId)}/instances?${query}`, undefined, undefined, abort);
       if (!Array.isArray(data)) throw new Error("OCI instance pool response is missing its member list");
       for (const entry of data) {
         const record = object(entry);
@@ -134,16 +134,18 @@ export class OciRestClient {
     }
   }
 
-  updateInstancePool(ociRegion: string, poolId: string, size: number, etag: string): Promise<unknown> {
-    return this.#request(ociRegion, "PUT", `/${API_VERSION}/instancePools/${encodeURIComponent(poolId)}`, { size }, etag);
+  updateInstancePool(ociRegion: string, poolId: string, size: number, etag: string, abort?: AbortSignal): Promise<unknown> {
+    return this.#request(ociRegion, "PUT", `/${API_VERSION}/instancePools/${encodeURIComponent(poolId)}`, { size }, etag, abort);
   }
 
-  detachPoolInstance(ociRegion: string, poolId: string, instanceId: string): Promise<unknown> {
+  detachPoolInstance(ociRegion: string, poolId: string, instanceId: string, abort?: AbortSignal): Promise<unknown> {
     return this.#request(
       ociRegion,
       "POST",
       `/${API_VERSION}/instancePools/${encodeURIComponent(poolId)}/actions/detachInstance`,
       { instanceId, isDecrementSize: true, isAutoTerminate: true },
+      undefined,
+      abort,
     );
   }
 
@@ -259,12 +261,15 @@ export class OciRestClient {
     return headers;
   }
 
-  async #request(ociRegion: string, method: string, path: string, payload?: unknown, etag?: string): Promise<OciResponse> {
+  async #request(ociRegion: string, method: string, path: string, payload?: unknown, etag?: string, abort?: AbortSignal): Promise<OciResponse> {
     const url = new URL(`${this.baseUrl(ociRegion)}${path}`);
     const body = method === "POST" || method === "PUT" ? (payload === null || payload === undefined ? "" : JSON.stringify(payload)) : undefined;
+    abort?.throwIfAborted();
     const headers = await this.signedHeaders(method, url, body);
+    abort?.throwIfAborted();
     if (etag !== undefined) headers.set("if-match", etag);
-    const signal = AbortSignal.timeout(OCI_TIMEOUT_MS);
+    const timeout = AbortSignal.timeout(OCI_TIMEOUT_MS);
+    const signal = abort === undefined ? timeout : AbortSignal.any([abort, timeout]);
     const response = await fetch(url.toString(), body === undefined ? { method, headers, signal } : { method, headers, body, signal });
     const text = await response.text();
     const requestId = response.headers.get("opc-request-id");

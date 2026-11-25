@@ -25,9 +25,12 @@ import {
   evaluateAutoscale,
   hasVolumeGrowthBudget,
   INSTANCE_ID_LABEL,
+  INSTANCE_POOL_ID_LABEL,
   oldestUnjoinedMember,
   planPoolScaleUp,
+  PENDING_HELLO_GRACE_MS,
   POOL_ENROLLMENT_GRACE_MS,
+  REAPED_INSTANCE_TOMBSTONE_MS,
   poolEnrollmentFailureKey,
   poolScaleDownCooldownKey,
   poolScaleUpCooldownKey,
@@ -38,7 +41,7 @@ import {
   type AutoscaleAction,
 } from "./autoscaler";
 import type { Env } from "./env";
-import { isOciRegion, OciRestClient } from "./oci-client";
+import { isOciRegion, OciRestClient, type PoolInstance } from "./oci-client";
 import type {
   AgentMessage,
   AtlasPlacement,
@@ -219,6 +222,7 @@ type NodeRow = {
   last_seen_at: number;
   last_heartbeat_at: number;
   agent_version: string;
+  enrolled_at: number;
 };
 
 type PlacementRow = {
@@ -409,6 +413,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function parseLabels(raw: string | null): Record<string, string> {
+  const parsed = parseJson<unknown>(raw, null);
+  if (!isRecord(parsed)) return {};
+  return Object.fromEntries(Object.entries(parsed).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
+}
+
 function parseJson<T>(text: string | null, fallback: T): T {
   if (text === null || text.length === 0) return fallback;
   try {
@@ -467,6 +477,24 @@ const SWAP_PROGRESS: ReadonlySet<string> = new Set(["pending", "pulling", "start
 function holdServing(row: PlacementRow, report: PlacementReport): boolean {
   if (row.state !== "ready" || tcpPort(row.host_port) === null) return false;
   return SWAP_PROGRESS.has(report.state);
+}
+
+type WorkerLabelRow = { id: string; region: string; status: string; enrolled_at: number; token_hash: string | null; labels_json: string; labels: Record<string, string> };
+
+type PoolVerification = "verified" | "not_member" | "unavailable";
+
+const INSTANCE_ID_SQL = `CASE WHEN json_valid(labels_json) THEN json_extract(labels_json, '$."oci.instance-id"') END`;
+
+function isOciInstanceId(instanceId: string | undefined): instanceId is string {
+  return instanceId !== undefined && instanceId.startsWith("ocid1.instance.");
+}
+
+function reapedInstanceKey(instanceId: string): string {
+  return `reaped_instance:${instanceId}`;
+}
+
+function terminating(): HttpError {
+  return new HttpError(409, "conflict", "The instance is being terminated", "Boot a new instance instead of reusing this one.");
 }
 
 function detailStrings(detail: Record<string, unknown>): Record<string, string> {
@@ -863,6 +891,9 @@ export class FleetDO extends DurableObject<Env> {
   private readonly logRequests = new Map<string, LogRequest>();
   private readonly logStreams = new Map<string, LogStream>();
   private readonly eventSubscribers = new Set<EventSubscriber>();
+  private readonly reapingInstances = new Set<string>();
+  private readonly workerJoins = new Map<string, number>();
+  private readonly poolAbortControllers = new Map<string, AbortController>();
   private ociClient: Promise<OciRestClient | null> | undefined;
   private tlsEnsureInFlight: Promise<unknown> | undefined;
   private nodeSyncPending = Promise.resolve();
@@ -878,7 +909,7 @@ export class FleetDO extends DurableObject<Env> {
   private migrate(): void {
     const statements = [
       "CREATE TABLE IF NOT EXISTS regions (label TEXT PRIMARY KEY, oci_region TEXT NOT NULL, compartment_id TEXT NOT NULL, instance_pool_id TEXT, min_workers INTEGER NOT NULL DEFAULT 0, max_workers INTEGER NOT NULL DEFAULT 0, rollout_order INTEGER NOT NULL DEFAULT 0, config_json TEXT NOT NULL, updated_at INTEGER NOT NULL)",
-      "CREATE TABLE IF NOT EXISTS nodes (id TEXT PRIMARY KEY, region TEXT NOT NULL, pool_kind TEXT NOT NULL, vcn_ip TEXT NOT NULL DEFAULT '', netbird_ip TEXT, arch TEXT NOT NULL DEFAULT 'arm64', shape TEXT NOT NULL DEFAULT '', fault_domain TEXT NOT NULL DEFAULT '', cpu_total_m INTEGER NOT NULL DEFAULT 0, mem_total_mib INTEGER NOT NULL DEFAULT 0, disk_total_gib INTEGER NOT NULL DEFAULT 0, labels_json TEXT NOT NULL DEFAULT '{}', volumes_json TEXT NOT NULL DEFAULT '[]', token_hash TEXT, status TEXT NOT NULL DEFAULT 'pending', drain_requested INTEGER NOT NULL DEFAULT 0, drain_reason TEXT, last_seen_at INTEGER NOT NULL DEFAULT 0, last_heartbeat_at INTEGER NOT NULL DEFAULT 0, agent_version TEXT NOT NULL DEFAULT '')",
+      "CREATE TABLE IF NOT EXISTS nodes (id TEXT PRIMARY KEY, region TEXT NOT NULL, pool_kind TEXT NOT NULL, vcn_ip TEXT NOT NULL DEFAULT '', netbird_ip TEXT, arch TEXT NOT NULL DEFAULT 'arm64', shape TEXT NOT NULL DEFAULT '', fault_domain TEXT NOT NULL DEFAULT '', cpu_total_m INTEGER NOT NULL DEFAULT 0, mem_total_mib INTEGER NOT NULL DEFAULT 0, disk_total_gib INTEGER NOT NULL DEFAULT 0, labels_json TEXT NOT NULL DEFAULT '{}', volumes_json TEXT NOT NULL DEFAULT '[]', token_hash TEXT, status TEXT NOT NULL DEFAULT 'pending', drain_requested INTEGER NOT NULL DEFAULT 0, drain_reason TEXT, last_seen_at INTEGER NOT NULL DEFAULT 0, last_heartbeat_at INTEGER NOT NULL DEFAULT 0, agent_version TEXT NOT NULL DEFAULT '', enrolled_at INTEGER NOT NULL DEFAULT 0)",
       "CREATE TABLE IF NOT EXISTS services (name TEXT PRIMARY KEY, mode TEXT NOT NULL, priority TEXT NOT NULL, image TEXT NOT NULL, spec_json TEXT NOT NULL, config_version INTEGER NOT NULL DEFAULT 1, updated_at INTEGER NOT NULL)",
       "CREATE TABLE IF NOT EXISTS placements (id TEXT PRIMARY KEY, service_name TEXT NOT NULL, region TEXT NOT NULL, node_id TEXT, slot INTEGER NOT NULL, desired_image TEXT NOT NULL, desired_config_hash TEXT, active_image TEXT, active_config_hash TEXT, host_port INTEGER, postgres_host_port INTEGER, internal_host_port INTEGER, candidate_image TEXT, candidate_error TEXT, state TEXT NOT NULL, error TEXT, updated_at INTEGER NOT NULL)",
       "CREATE INDEX IF NOT EXISTS placements_node ON placements (node_id)",
@@ -905,6 +936,10 @@ export class FleetDO extends DurableObject<Env> {
     }
     if (!nodeColumns.some((column) => column.name === "last_heartbeat_at")) {
       this.sql.exec("ALTER TABLE nodes ADD COLUMN last_heartbeat_at INTEGER NOT NULL DEFAULT 0");
+    }
+    if (!nodeColumns.some((column) => column.name === "enrolled_at")) {
+      this.sql.exec("ALTER TABLE nodes ADD COLUMN enrolled_at INTEGER NOT NULL DEFAULT 0");
+      this.sql.exec("UPDATE nodes SET enrolled_at = ? WHERE status = 'pending' AND enrolled_at = 0", Date.now());
     }
     const challengeColumns = this.sql.exec<{ name: string }>("PRAGMA table_info(auth_challenges)").toArray();
     if (!challengeColumns.some((column) => column.name === "client_ip")) {
@@ -980,7 +1015,7 @@ export class FleetDO extends DurableObject<Env> {
       cpuTotalMilli: row.cpu_total_m,
       memTotalMiB: row.mem_total_mib,
       diskTotalGiB: row.disk_total_gib,
-      labels: parseJson<Record<string, string>>(row.labels_json, {}),
+      labels: parseLabels(row.labels_json),
       volumes: parseJson<VolumeInfo[]>(row.volumes_json, []),
       status: row.status as NodeStatus,
       drainRequested: row.drain_requested === 1,
@@ -1403,11 +1438,23 @@ export class FleetDO extends DurableObject<Env> {
       throw new HttpError(400, "validation", "vcnIp must be a private IPv4 address in the region's VCN");
     }
     const alreadyRegistered = () => this.sql.exec(
-      "SELECT id FROM nodes WHERE id = ? OR json_extract(labels_json, '$.\"oci.instance-id\"') = ? LIMIT 1", nodeId, instanceId,
+      `SELECT id FROM nodes WHERE id = ? OR ${INSTANCE_ID_SQL} = ? LIMIT 1`, nodeId, instanceId,
     ).toArray().length > 0;
     const conflict = () => new HttpError(409, "conflict", "The node is already registered", "Remove the existing registration before enrolling again.");
     if (alreadyRegistered()) throw conflict();
     const labels: Record<string, string> = { [INSTANCE_ID_LABEL]: instanceId };
+    const poolId = poolKind === "worker" && regionRow.instance_pool_id !== null && regionRow.instance_pool_id.length > 0 ? regionRow.instance_pool_id : null;
+    if (poolId !== null && instanceId.startsWith("ocid1.instance.") && !localDevAllowed(url, this.env)) {
+      const oci = await this.oci();
+      if (oci === null) throw new HttpError(503, "unavailable", "OCI credentials are not configured");
+      const members = await oci.listInstancePoolInstances(regionRow.oci_region, poolId, regionRow.compartment_id);
+      if (this.regionPoolId(region) !== poolId || !members.some(({ id }) => id === instanceId)) {
+        throw new HttpError(409, "conflict", "Instance is not a member of the region's configured worker pool");
+      }
+      labels[INSTANCE_POOL_ID_LABEL] = poolId;
+    } else if (poolId !== null) {
+      labels[INSTANCE_POOL_ID_LABEL] = poolId;
+    }
     if (poolKind === "stateful" && instanceId.startsWith("ocid1.instance.")) {
       const oci = await this.oci();
       const identity = await oci?.statefulIdentity(regionRow.oci_region, region, regionRow.compartment_id, instanceId);
@@ -1416,9 +1463,11 @@ export class FleetDO extends DurableObject<Env> {
         if (identity.index !== null) labels["oci.stateful-index"] = identity.index;
       }
     }
+    const enrolledAt = Date.now();
+    if (this.isReapingOrReaped(instanceId, enrolledAt)) throw terminating();
     const inserted = this.sql.exec(
-      "INSERT INTO nodes (id, region, pool_kind, vcn_ip, labels_json, token_hash) SELECT ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM nodes WHERE id = ? OR json_extract(labels_json, '$.\"oci.instance-id\"') = ?) RETURNING id",
-      nodeId, region, poolKind, vcnIp, JSON.stringify(labels), tokenHash, nodeId, instanceId,
+      `INSERT INTO nodes (id, region, pool_kind, vcn_ip, labels_json, token_hash, enrolled_at) SELECT ?, ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM nodes WHERE id = ? OR ${INSTANCE_ID_SQL} = ?) RETURNING id`,
+      nodeId, region, poolKind, vcnIp, JSON.stringify(labels), tokenHash, enrolledAt, nodeId, instanceId,
     ).toArray();
     if (inserted.length === 0) {
       throw conflict();
@@ -1452,10 +1501,20 @@ export class FleetDO extends DurableObject<Env> {
       hint !== null
         ? this.loadNodeRow(hint)
         : this.sql.exec<NodeRow>("SELECT * FROM nodes WHERE token_hash = ?", await hashNodeToken(token)).toArray()[0];
-    if (row === undefined || !(await verifyNodeToken(token, row.token_hash)) ||
-        this.loadNodeRow(row.id)?.token_hash !== row.token_hash) {
+    if (row === undefined || !(await verifyNodeToken(token, row.token_hash))) {
       return errorJson(401, "unauthorized", "Invalid node token", "Re-enroll the node.");
     }
+    const loaded = this.loadNodeRow(row.id);
+    if (loaded !== undefined && this.needsPoolVerification(loaded)) {
+      const verification = await this.verifyPendingWorkerPool(loaded, localDevAllowed(url, this.env));
+      if (verification === "unavailable") throw new HttpError(503, "unavailable", "Worker pool membership cannot be verified");
+      if (verification === "not_member") throw terminating();
+    }
+    const current = this.loadNodeRow(row.id);
+    if (current === undefined || current.token_hash !== row.token_hash) {
+      return errorJson(401, "unauthorized", "Invalid node token", "Re-enroll the node.");
+    }
+    if (this.nodeBlocked(current, Date.now())) throw terminating();
     for (const ws of this.sockets(row.id)) this.closeSocket(ws, 4001, "replaced");
     const pair = new WebSocketPair();
     const client = pair[0];
@@ -1489,6 +1548,15 @@ export class FleetDO extends DurableObject<Env> {
     if (large && (parsed.type !== "exec_result" || typeof parsed.requestId !== "string" ||
         this.execWaiters.get(parsed.requestId)?.nodeId !== attachment.nodeId)) return;
     const now = Date.now();
+    const unverified = this.loadNodeRow(attachment.nodeId);
+    const verification: PoolVerification = unverified !== undefined && this.needsPoolVerification(unverified)
+      ? await this.verifyPendingWorkerPool(unverified, this.env.LOCAL_DEV === "true")
+      : "verified";
+    const sender = this.loadNodeRow(attachment.nodeId);
+    if (verification !== "verified" || sender === undefined || this.nodeBlocked(sender, Date.now())) {
+      this.closeSocket(ws, 4010, "terminating");
+      return;
+    }
     try {
       switch (parsed.type) {
         case "hello":
@@ -1591,7 +1659,7 @@ export class FleetDO extends DurableObject<Env> {
       this.closeSocket(ws, 4004, "unknown node");
       return;
     }
-    const stored = parseJson<Record<string, string>>(row.labels_json, {});
+    const stored = parseLabels(row.labels_json);
     const labels = Object.fromEntries(
       Object.entries(isRecord(hello.labels) ? hello.labels : {})
         .filter(([key, value]) => !key.startsWith("oci.") && typeof value === "string"),
@@ -1621,9 +1689,7 @@ export class FleetDO extends DurableObject<Env> {
     if (hello.region !== attachment.region || hello.poolKind !== attachment.poolKind) {
       console.warn("hello region/pool mismatch ignored", attachment.nodeId, hello.region, hello.poolKind);
     }
-    if (attachment.poolKind === "worker" && previous === "pending" && status === "active") {
-      this.deleteState(poolEnrollmentFailureKey(attachment.region));
-    }
+    if (attachment.poolKind === "worker" && previous === "pending" && status === "active") this.recordWorkerJoin(attachment.region);
     this.recordEvent("node_connected", attachment.nodeId, { previous, agentVersion: hello.agentVersion, status }, attachment.region);
     this.deleteState(`sent_desired:${attachment.nodeId}`);
     this.deleteState(`sent_routes:${attachment.nodeId}`);
@@ -1742,6 +1808,7 @@ export class FleetDO extends DurableObject<Env> {
         reportedVolumes(heartbeat.volumes) ?? row.volumes_json,
         attachment.nodeId,
       );
+      if (attachment.poolKind === "worker" && row.status === "pending" && status === "active") this.recordWorkerJoin(attachment.region);
       if (row.status === "down" || row.status === "pending") {
         this.recordEvent("node_connected", attachment.nodeId, { previous: row.status }, attachment.region);
         reconcileNeeded = true;
@@ -1965,7 +2032,7 @@ export class FleetDO extends DurableObject<Env> {
 
   private async onDrainComplete(attachment: Attachment, now: number): Promise<void> {
     const row = this.loadNodeRow(attachment.nodeId);
-    if (row === undefined) return;
+    if (row === undefined || row.status === "pending") return;
     this.sql.exec("UPDATE nodes SET status = 'drained', drain_requested = 1, last_seen_at = ? WHERE id = ?", now, attachment.nodeId);
     this.recordEvent("node_drained", attachment.nodeId, {}, attachment.region);
     await this.reconcile(now);
@@ -2362,6 +2429,7 @@ export class FleetDO extends DurableObject<Env> {
       ).toArray();
       for (const { id } of removed) this.deleteState(`rollout_by:${id}`);
     });
+    this.sql.exec("DELETE FROM kv_state WHERE key >= 'reaped_instance:' AND key < 'reaped_instance;' AND CAST(value AS INTEGER) <= ?", now);
   }
 
   private nodeEdgeMetrics(snapshot: EdgeMetricsSnapshot | null | undefined, receivedAt: number): NodeEdgeMetrics | undefined {
@@ -2546,8 +2614,14 @@ export class FleetDO extends DurableObject<Env> {
     const last = this.getState<number>("autoscale_at") ?? 0;
     if (now - last < AUTOSCALE_INTERVAL_MS) return;
     this.setState("autoscale_at", now);
+    const reconciledRows = this.loadRegionRows();
+    if (reconciledRows.length === 0) return;
+    const { listed: listedPools, verified } = await this.reconcilePoolMembership(reconciledRows, now);
     const regionRows = this.loadRegionRows();
-    if (regionRows.length === 0) return;
+    const unreconciled = new Set(this.env.LOCAL_DEV === "true" ? [] : regionRows
+      .filter(({ label, instance_pool_id: poolId }) => poolId !== null && poolId.length > 0 && verified.get(label) !== poolId &&
+        this.hasUnlabeledOciWorker(label))
+      .map(({ label }) => label));
     const regions = this.loadRegions();
     const nodes = this.loadNodes();
     if (nodes.length === 0) return;
@@ -2566,6 +2640,7 @@ export class FleetDO extends DurableObject<Env> {
     let cooldowns = new Map(Object.entries(this.getState<Record<string, number>>("autoscale_cooldowns") ?? {}));
     const actions: AutoscaleAction[] = [];
     for (const region of regions) {
+      if (unreconciled.has(region.label)) continue;
       const result = evaluateAutoscale({
         regions: [region],
         nodes: nodes.filter((node) => node.region === region.label),
@@ -2582,14 +2657,14 @@ export class FleetDO extends DurableObject<Env> {
       cooldowns = result.updatedCooldowns;
       actions.push(...result.actions);
     }
-    this.setState("autoscale_cooldowns", Object.fromEntries(cooldowns));
+    this.saveCooldowns(cooldowns);
     if (actions.length === 0) return;
     const oci = await this.oci();
     let reschedule = false;
     for (const action of actions) {
       try {
-        if (await this.executeAction(action, oci, overrides, now, cooldowns)) reschedule = true;
-        this.setState("autoscale_cooldowns", Object.fromEntries(cooldowns));
+        if (await this.executeAction(action, oci, overrides, now, cooldowns, listedPools)) reschedule = true;
+        this.saveCooldowns(cooldowns);
       } catch (error) {
         console.error("autoscale action failed", action.kind, error);
         this.setState("last_autoscale_error", {
@@ -2603,7 +2678,7 @@ export class FleetDO extends DurableObject<Env> {
   }
 
   private async enrolledInstanceId(row: NodeRow): Promise<string | null> {
-    const instanceId = parseJson<Record<string, string>>(row.labels_json, {})[INSTANCE_ID_LABEL];
+    const instanceId = parseLabels(row.labels_json)[INSTANCE_ID_LABEL];
     if (typeof instanceId !== "string" || !instanceId.startsWith("ocid1.instance.")) return null;
     return row.id === await nodeIdFor(instanceId, row.region, row.pool_kind) ? instanceId : null;
   }
@@ -2612,24 +2687,252 @@ export class FleetDO extends DurableObject<Env> {
     action: Extract<AutoscaleAction, { kind: "scale_pool_up" }>,
     oci: OciRestClient,
     failureKey: string,
+    listedPools: ReadonlyMap<string, readonly PoolInstance[]>,
   ): Promise<void> {
-    const members = await oci.listInstancePoolInstances(action.ociRegion, action.poolId, action.compartmentId);
-    const bootCutoff = Date.now() - POOL_ENROLLMENT_GRACE_MS;
+    const members = listedPools.get(action.poolId) ?? await oci.listInstancePoolInstances(action.ociRegion, action.poolId, action.compartmentId);
+    if (this.regionPoolId(action.region) !== action.poolId) return;
+    const selectedAt = Date.now();
+    const bootCutoff = selectedAt - POOL_ENROLLMENT_GRACE_MS;
     const aged = members.filter(({ state, createdAt }) => state === "RUNNING" && createdAt <= bootCutoff);
-    const enrolled = new Set(this.sql.exec<{ instance_id: string | null }>(
-      `SELECT json_extract(labels_json, '$."oci.instance-id"') AS instance_id FROM nodes WHERE region = ? AND pool_kind = 'worker'`,
-      action.region,
-    ).toArray().map(({ instance_id }) => instance_id));
-    const target = oldestUnjoinedMember(aged, enrolled);
+    const protectedInstances = new Set<string | null>(this.reapingInstances);
+    for (const worker of this.workerLabelRows(action.region)) {
+      if (worker.status !== "pending" || worker.enrolled_at > selectedAt - PENDING_HELLO_GRACE_MS) protectedInstances.add(worker.labels[INSTANCE_ID_LABEL] ?? null);
+    }
+    const target = oldestUnjoinedMember(aged, protectedInstances);
     if (target === undefined) return;
-    await oci.detachPoolInstance(action.ociRegion, action.poolId, target.id);
-    this.setState(failureKey, Date.now());
-    this.recordEvent(
-      "pool_scale_down",
-      target.id,
-      { instanceId: target.id, poolId: action.poolId, reason: "enrollment_timeout", createdAt: new Date(target.createdAt).toISOString() },
-      action.region,
-    );
+    const joinsBeforeReap = this.workerJoins.get(action.region) ?? 0;
+    const targetPendingRows = () => this.workerLabelRows(action.region)
+      .filter((worker) => worker.status === "pending" && worker.labels[INSTANCE_ID_LABEL] === target.id)
+      .map(({ id }) => id);
+    const signal = this.poolSignal(action.region);
+    if (signal.aborted) return;
+    this.reapingInstances.add(target.id);
+    this.setState(reapedInstanceKey(target.id), Date.now() + REAPED_INSTANCE_TOMBSTONE_MS);
+    for (const nodeId of targetPendingRows()) {
+      for (const ws of this.sockets(nodeId)) this.closeSocket(ws, 4010, "terminating");
+    }
+    let detached: boolean;
+    try {
+      detached = await oci.detachPoolInstance(action.ociRegion, action.poolId, target.id, signal).then(
+        () => true,
+        (error: unknown) => {
+          if (signal.aborted) return false;
+          throw error;
+        },
+      );
+    } finally {
+      this.reapingInstances.delete(target.id);
+    }
+    if (!detached || this.regionPoolId(action.region) !== action.poolId) return;
+    const stalePending = targetPendingRows();
+    for (const nodeId of stalePending) {
+      for (const ws of this.sockets(nodeId)) this.closeSocket(ws, 4010, "terminated");
+    }
+    const detachedAt = Date.now();
+    this.ctx.storage.transactionSync(() => {
+      for (const nodeId of stalePending) this.deleteNodeRows(nodeId);
+      this.setState(reapedInstanceKey(target.id), detachedAt + REAPED_INSTANCE_TOMBSTONE_MS);
+      if ((this.workerJoins.get(action.region) ?? 0) === joinsBeforeReap && this.regionPoolId(action.region) === action.poolId) {
+        this.setState(failureKey, detachedAt);
+      }
+      this.recordEvent(
+        "pool_scale_down",
+        target.id,
+        { instanceId: target.id, poolId: action.poolId, reason: "enrollment_timeout", createdAt: new Date(target.createdAt).toISOString(), nodeId: stalePending[0] },
+        action.region,
+      );
+    });
+  }
+
+  private async reconcilePoolMembership(
+    regionRows: readonly RegionRow[],
+    now: number,
+  ): Promise<{ listed: ReadonlyMap<string, readonly PoolInstance[]>; verified: ReadonlyMap<string, string> }> {
+    const listed = new Map<string, readonly PoolInstance[]>();
+    const verified = new Map(regionRows.flatMap(({ label, instance_pool_id: poolId }) =>
+      poolId === null || poolId.length === 0 ? [] : [[label, poolId] as const]));
+    const result = { listed, verified };
+    if (this.env.LOCAL_DEV === "true") return result;
+    const enrolledBefore = now - POOL_ENROLLMENT_GRACE_MS;
+    const workers = this.workerLabelRows();
+    const due = regionRows.filter(({ label, instance_pool_id: poolId }) =>
+      poolId !== null && poolId.length > 0 && workers.some((worker) => worker.region === label && (
+        (worker.labels[INSTANCE_POOL_ID_LABEL] === undefined && isOciInstanceId(worker.labels[INSTANCE_ID_LABEL])) ||
+        (worker.status === "pending" && worker.enrolled_at <= enrolledBefore && worker.labels[INSTANCE_POOL_ID_LABEL] === poolId))));
+    if (due.length === 0) return result;
+    const oci = await this.oci();
+    if (oci === null) return result;
+    for (const region of due) {
+      const poolId = region.instance_pool_id;
+      if (poolId === null) continue;
+      verified.delete(region.label);
+      if (this.regionPoolId(region.label) !== poolId) continue;
+      const signal = this.poolSignal(region.label);
+      try {
+        const members = await oci.listInstancePoolInstances(region.oci_region, poolId, region.compartment_id, signal);
+        if (signal.aborted || this.regionPoolId(region.label) !== poolId) continue;
+        verified.set(region.label, poolId);
+        listed.set(poolId, members);
+        const memberIds = new Set(members.map(({ id }) => id));
+        this.labelVerifiedWorkers(region.label, poolId, memberIds);
+        this.sweepRegionOrphans(region.label, poolId, memberIds, enrolledBefore);
+      } catch (error) {
+        if (signal.aborted || this.regionPoolId(region.label) !== poolId) continue;
+        console.error("worker pool membership reconcile failed", region.label, error);
+        this.setState("last_autoscale_error", { at: now, action: "reconcile_pool_membership", message: error instanceof Error ? error.message : String(error) });
+      }
+    }
+    return result;
+  }
+
+  private hasUnlabeledOciWorker(region: string): boolean {
+    return this.workerLabelRows(region).some(({ labels }) => labels[INSTANCE_POOL_ID_LABEL] === undefined && isOciInstanceId(labels[INSTANCE_ID_LABEL]));
+  }
+
+  private workerLabelRows(region?: string): WorkerLabelRow[] {
+    const rows = region === undefined
+      ? this.sql.exec<Omit<WorkerLabelRow, "labels">>("SELECT id, region, status, enrolled_at, token_hash, labels_json FROM nodes WHERE pool_kind = 'worker'").toArray()
+      : this.sql.exec<Omit<WorkerLabelRow, "labels">>("SELECT id, region, status, enrolled_at, token_hash, labels_json FROM nodes WHERE pool_kind = 'worker' AND region = ?", region).toArray();
+    return rows.map((row) => ({ ...row, labels: parseLabels(row.labels_json) }));
+  }
+
+  private stampPoolLabel(worker: WorkerLabelRow, poolId: string): boolean {
+    const labels = JSON.stringify({ ...worker.labels, [INSTANCE_POOL_ID_LABEL]: poolId });
+    return this.sql.exec("UPDATE nodes SET labels_json = ? WHERE id = ? AND labels_json = ? RETURNING id", labels, worker.id, worker.labels_json).toArray().length > 0;
+  }
+
+  private labelVerifiedWorkers(region: string, poolId: string, poolMembers: ReadonlySet<string>): void {
+    for (const worker of this.workerLabelRows(region)) {
+      const instanceId = worker.labels[INSTANCE_ID_LABEL];
+      if (worker.labels[INSTANCE_POOL_ID_LABEL] !== undefined || instanceId === undefined || !poolMembers.has(instanceId)) continue;
+      this.stampPoolLabel(worker, poolId);
+    }
+  }
+
+  private needsPoolVerification(row: NodeRow): boolean {
+    if (row.pool_kind !== "worker" || row.status !== "pending") return false;
+    const currentPoolId = this.regionPoolId(row.region);
+    return currentPoolId !== null && currentPoolId.length > 0 &&
+      parseLabels(row.labels_json)[INSTANCE_POOL_ID_LABEL] === undefined;
+  }
+
+  private async verifyPendingWorkerPool(row: NodeRow, localDev: boolean): Promise<PoolVerification> {
+    const poolId = this.regionPoolId(row.region);
+    const region = this.sql.exec<RegionRow>("SELECT * FROM regions WHERE label = ?", row.region).toArray()[0];
+    if (poolId === null || region === undefined || !isRecord(parseJson<unknown>(row.labels_json, null))) return "not_member";
+    const instanceId = parseLabels(row.labels_json)[INSTANCE_ID_LABEL];
+    if (instanceId === undefined || instanceId.length === 0) return "not_member";
+    const concurrentlyVerified = (): boolean => {
+      const latest = this.workerLabelRows(row.region).find(({ id }) => id === row.id);
+      return latest !== undefined && latest.token_hash === row.token_hash && this.regionPoolId(row.region) === poolId &&
+        latest.labels[INSTANCE_POOL_ID_LABEL] === poolId;
+    };
+    let members: ReadonlySet<string> | null = null;
+    if (isOciInstanceId(instanceId) && !localDev) {
+      const oci = await this.oci();
+      if (oci === null) return concurrentlyVerified() ? "verified" : "unavailable";
+      const listed = await oci.listInstancePoolInstances(region.oci_region, poolId, region.compartment_id).then(
+        (instances) => new Set(instances.map(({ id }) => id)),
+        (error: unknown) => {
+          console.error("worker pool membership check failed", row.id, error);
+          return null;
+        },
+      );
+      if (listed === null) return concurrentlyVerified() ? "verified" : "unavailable";
+      members = listed;
+    }
+    const current = this.workerLabelRows(row.region).find(({ id }) => id === row.id);
+    if (current === undefined || current.token_hash !== row.token_hash || this.regionPoolId(row.region) !== poolId) return "not_member";
+    if (current.labels[INSTANCE_POOL_ID_LABEL] !== undefined) return current.labels[INSTANCE_POOL_ID_LABEL] === poolId ? "verified" : "not_member";
+    if (current.status !== "pending") return "not_member";
+    if (members !== null && !members.has(instanceId)) return "not_member";
+    return this.stampPoolLabel(current, poolId) ? "verified" : "not_member";
+  }
+
+  private sweepRegionOrphans(region: string, poolId: string, poolMembers: ReadonlySet<string>, enrolledBefore: number): void {
+    const orphans = this.workerLabelRows(region).flatMap(({ id, status, enrolled_at, labels }) => {
+      const instanceId = labels[INSTANCE_ID_LABEL];
+      return status === "pending" && enrolled_at <= enrolledBefore && labels[INSTANCE_POOL_ID_LABEL] === poolId &&
+        isOciInstanceId(instanceId) && !poolMembers.has(instanceId) && !this.reapingInstances.has(instanceId)
+        ? [{ id, instanceId }]
+        : [];
+    });
+    if (orphans.length === 0) return;
+    for (const { id } of orphans) {
+      for (const ws of this.sockets(id)) this.closeSocket(ws, 4010, "terminated");
+    }
+    const sweptAt = Date.now();
+    this.ctx.storage.transactionSync(() => {
+      for (const { id, instanceId } of orphans) {
+        this.deleteNodeRows(id);
+        this.setState(reapedInstanceKey(instanceId), sweptAt + REAPED_INSTANCE_TOMBSTONE_MS);
+        this.recordEvent("node_lost", id, { instanceId, poolId, reason: "left_pool_before_join" }, region);
+      }
+    });
+  }
+
+  private releaseRegionPool(region: string): void {
+    this.poolAbortControllers.get(region)?.abort();
+    this.poolAbortControllers.delete(region);
+    this.deleteState(poolEnrollmentFailureKey(region));
+  }
+
+  private replaceRegionPool(region: string, poolId: string): void {
+    this.releaseRegionPool(region);
+    const obsolete = this.workerLabelRows(region).filter(({ status, labels }) => status === "pending" && labels[INSTANCE_POOL_ID_LABEL] !== poolId);
+    for (const { id } of obsolete) {
+      for (const ws of this.sockets(id)) this.closeSocket(ws, 4010, "terminating");
+      this.deleteNodeRows(id);
+      this.recordEvent("node_lost", id, { poolId, reason: "pool_replaced" }, region);
+    }
+  }
+
+  private saveCooldowns(cooldowns: ReadonlyMap<string, number>): void {
+    const currentPoolKeys = new Set(this.loadRegionRows().flatMap(({ label, instance_pool_id: poolId }) =>
+      poolId === null || poolId.length === 0 ? [] : [poolScaleUpCooldownKey(label, poolId), poolScaleDownCooldownKey(label, poolId)]));
+    this.setState("autoscale_cooldowns", Object.fromEntries(
+      [...cooldowns].filter(([key]) => !(key.startsWith("pool-up:") || key.startsWith("pool-down:")) || currentPoolKeys.has(key))));
+  }
+
+  private poolSignal(region: string): AbortSignal {
+    const existing = this.poolAbortControllers.get(region);
+    if (existing !== undefined) return existing.signal;
+    const controller = new AbortController();
+    this.poolAbortControllers.set(region, controller);
+    return controller.signal;
+  }
+
+  private regionPoolId(region: string): string | null {
+    return this.sql.exec<{ instance_pool_id: string | null }>("SELECT instance_pool_id FROM regions WHERE label = ?", region).toArray()[0]?.instance_pool_id ?? null;
+  }
+
+  private isReapingOrReaped(instanceId: string, now: number): boolean {
+    return this.reapingInstances.has(instanceId) || (this.getState<number>(reapedInstanceKey(instanceId)) ?? 0) > now;
+  }
+
+  private nodeBlocked(row: NodeRow, now: number): boolean {
+    const labels = parseLabels(row.labels_json);
+    const instanceId = labels[INSTANCE_ID_LABEL];
+    if (instanceId !== undefined && this.isReapingOrReaped(instanceId, now)) return true;
+    if (row.pool_kind !== "worker" || row.status !== "pending") return false;
+    const currentPoolId = this.regionPoolId(row.region);
+    const poolId = labels[INSTANCE_POOL_ID_LABEL];
+    return currentPoolId !== null && currentPoolId.length > 0 && poolId !== undefined && poolId !== currentPoolId;
+  }
+
+  private recordWorkerJoin(region: string): void {
+    this.workerJoins.set(region, (this.workerJoins.get(region) ?? 0) + 1);
+    this.deleteState(poolEnrollmentFailureKey(region));
+  }
+
+  private deleteNodeRows(nodeId: string): void {
+    this.sql.exec("DELETE FROM placements WHERE node_id = ?", nodeId);
+    this.sql.exec("DELETE FROM metrics_10s WHERE node_id = ?", nodeId);
+    this.sql.exec("DELETE FROM metrics_1m WHERE node_id = ?", nodeId);
+    this.sql.exec("DELETE FROM nodes WHERE id = ?", nodeId);
+    this.deleteState(`sent_desired:${nodeId}`);
+    this.deleteState(`sent_routes:${nodeId}`);
+    this.deleteState(`volume_grow:${nodeId}`);
   }
 
   private async executeAction(
@@ -2638,6 +2941,7 @@ export class FleetDO extends DurableObject<Env> {
     overrides: Record<string, number>,
     now: number,
     cooldowns: Map<string, number>,
+    listedPools: ReadonlyMap<string, readonly PoolInstance[]>,
   ): Promise<boolean> {
     switch (action.kind) {
       case "scale_replicas": {
@@ -2657,13 +2961,13 @@ export class FleetDO extends DurableObject<Env> {
       }
       case "scale_pool_up": {
         if (oci === null) return false;
-        const cooldownKey = poolScaleUpCooldownKey(action.region);
+        const cooldownKey = poolScaleUpCooldownKey(action.region, action.poolId);
         const failureKey = poolEnrollmentFailureKey(action.region);
+        if (this.regionPoolId(action.region) !== action.poolId) return false;
         const pool = await oci.getInstancePool(action.ociRegion, action.poolId);
-        const registeredWorkers = this.sql.exec<{ n: number }>(
-          "SELECT COUNT(*) AS n FROM nodes WHERE region = ? AND pool_kind = 'worker' AND status NOT IN ('down', 'pending')",
-          action.region,
-        ).one().n;
+        if (this.regionPoolId(action.region) !== action.poolId) return false;
+        const registeredWorkers = this.workerLabelRows(action.region)
+          .filter(({ status, labels }) => status !== "down" && status !== "pending" && labels[INSTANCE_POOL_ID_LABEL] === action.poolId).length;
         const plan = planPoolScaleUp({
           ociPoolSize: pool.size,
           ociPoolState: pool.state,
@@ -2673,48 +2977,67 @@ export class FleetDO extends DurableObject<Env> {
           nowMs: now,
         });
         if (plan.kind === "scale") {
-          await oci.updateInstancePool(action.ociRegion, action.poolId, plan.newSize, pool.etag);
+          const signal = this.poolSignal(action.region);
+          const resized = await oci.updateInstancePool(action.ociRegion, action.poolId, plan.newSize, pool.etag, signal).then(
+            () => true,
+            (error: unknown) => {
+              if (signal.aborted) return false;
+              throw error;
+            },
+          );
+          if (!resized || this.regionPoolId(action.region) !== action.poolId) return false;
           cooldowns.set(cooldownKey, now);
           this.recordEvent("pool_scale_up", action.poolId, { from: pool.size, newSize: plan.newSize, registeredWorkers, reason: action.reason }, action.region);
           return false;
         }
-        cooldowns.set(cooldownKey, now);
-        this.setState("autoscale_cooldowns", Object.fromEntries(cooldowns));
         this.recordEvent(
           "pool_scale_blocked",
           action.poolId,
           { reason: plan.reason, ociPoolSize: pool.size, poolState: pool.state, registeredWorkers, maxSize: action.maxSize, trigger: action.reason },
           action.region,
         );
-        if (plan.reason === "unjoined_workers_pending") await this.reapUnjoinedWorker(action, oci, failureKey);
+        if (plan.reason === "unjoined_workers_pending") await this.reapUnjoinedWorker(action, oci, failureKey, listedPools);
+        if (this.regionPoolId(action.region) !== action.poolId) return false;
+        cooldowns.set(cooldownKey, now);
+        this.saveCooldowns(cooldowns);
         return false;
       }
       case "drain_for_scale_down": {
-        if (oci === null) return false;
+        if (oci === null || this.regionPoolId(action.region) !== action.poolId) return false;
+        const row = this.loadNodeRow(action.nodeId);
+        if (row === undefined || row.pool_kind !== "worker" || row.region !== action.region ||
+            parseLabels(row.labels_json)[INSTANCE_POOL_ID_LABEL] !== action.poolId) return false;
         await this.drainNode(action.nodeId, `autoscaler:${action.reason}`);
-        cooldowns.set(poolScaleDownCooldownKey(action.region), now);
+        const drained = this.loadNodeRow(action.nodeId);
+        if (this.regionPoolId(action.region) !== action.poolId || drained === undefined || drained.token_hash !== row.token_hash ||
+            drained.pool_kind !== "worker" || drained.region !== action.region ||
+            parseLabels(drained.labels_json)[INSTANCE_POOL_ID_LABEL] !== action.poolId) return false;
+        cooldowns.set(poolScaleDownCooldownKey(action.region, action.poolId), now);
         return false;
       }
       case "terminate_drained_worker": {
         if (oci === null) return false;
         const row = this.loadNodeRow(action.nodeId);
         if (row === undefined || row.pool_kind !== "worker" || row.region !== action.region ||
+            parseLabels(row.labels_json)[INSTANCE_POOL_ID_LABEL] !== action.poolId ||
             await this.enrolledInstanceId(row) !== action.instanceId) return false;
         const current = this.loadNodeRow(action.nodeId);
         if (current === undefined || current.token_hash !== row.token_hash || current.drain_requested !== 1) return false;
         const region = this.sql.exec<RegionRow>("SELECT * FROM regions WHERE label = ?", row.region).toArray()[0];
         if (region?.instance_pool_id !== action.poolId || region.oci_region !== action.ociRegion) return false;
-        await oci.detachPoolInstance(action.ociRegion, action.poolId, action.instanceId);
-        if (this.loadNodeRow(action.nodeId)?.token_hash !== row.token_hash) return false;
+        const signal = this.poolSignal(action.region);
+        const detached = await oci.detachPoolInstance(action.ociRegion, action.poolId, action.instanceId, signal).then(
+          () => true,
+          (error: unknown) => {
+            if (signal.aborted) return false;
+            throw error;
+          },
+        );
+        if (!detached || signal.aborted || this.regionPoolId(action.region) !== action.poolId ||
+            this.loadNodeRow(action.nodeId)?.token_hash !== row.token_hash) return false;
         for (const ws of this.sockets(action.nodeId)) this.closeSocket(ws, 4010, "terminated");
         this.ctx.storage.transactionSync(() => {
-          this.sql.exec("DELETE FROM placements WHERE node_id = ?", action.nodeId);
-          this.sql.exec("DELETE FROM metrics_10s WHERE node_id = ?", action.nodeId);
-          this.sql.exec("DELETE FROM metrics_1m WHERE node_id = ?", action.nodeId);
-          this.sql.exec("DELETE FROM nodes WHERE id = ?", action.nodeId);
-          this.deleteState(`sent_desired:${action.nodeId}`);
-          this.deleteState(`sent_routes:${action.nodeId}`);
-          this.deleteState(`volume_grow:${action.nodeId}`);
+          this.deleteNodeRows(action.nodeId);
           this.recordEvent("pool_scale_down", action.nodeId, { instanceId: action.instanceId, poolId: action.poolId, reason: action.reason }, action.region);
         });
         return true;
@@ -2725,7 +3048,7 @@ export class FleetDO extends DurableObject<Env> {
         if (row === undefined || row.pool_kind !== "stateful" || row.region !== action.region || row.status === "down") return false;
         const region = this.sql.exec<RegionRow>("SELECT * FROM regions WHERE label = ?", row.region).toArray()[0];
         if (region === undefined || region.oci_region !== action.ociRegion) return false;
-        const storedLabels = parseJson<Record<string, string>>(row.labels_json, {});
+        const storedLabels = parseLabels(row.labels_json);
         const knownVolumeId = storedLabels[DATA_VOLUME_ID_LABEL];
         if (knownVolumeId !== undefined && !hasVolumeGrowthBudget(this.getState<number>(`volume_resize_at:${knownVolumeId}`) ?? undefined, now)) {
           cooldowns.set(volumeGrowCooldownKey(action.nodeId), now);
@@ -2750,7 +3073,7 @@ export class FleetDO extends DurableObject<Env> {
           return false;
         }
         const newSizeGiB = Math.min(VOLUME_MAX_GIB, volume.sizeGiB + VOLUME_GROW_GIB);
-        const labels = { ...parseJson<Record<string, string>>(current.labels_json, {}), [DATA_VOLUME_ID_LABEL]: volume.id };
+        const labels = { ...parseLabels(current.labels_json), [DATA_VOLUME_ID_LABEL]: volume.id };
         this.sql.exec("UPDATE nodes SET labels_json = ? WHERE id = ?", JSON.stringify(labels), action.nodeId);
         this.setState(budget, requestedAt);
         await oci.updateVolumeSize(action.ociRegion, volume.id, newSizeGiB, volume.etag);
@@ -3214,6 +3537,8 @@ export class FleetDO extends DurableObject<Env> {
               ? region.instancePoolId
               : null;
         const orderIndex = order.indexOf(region.label);
+        const previousPoolId = this.regionPoolId(region.label);
+        if (poolId !== null && previousPoolId !== null && previousPoolId.length > 0 && previousPoolId !== poolId) this.replaceRegionPool(region.label, poolId);
         this.sql.exec(
           "INSERT INTO regions (label, oci_region, compartment_id, instance_pool_id, min_workers, max_workers, rollout_order, config_json, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(label) DO UPDATE SET oci_region = excluded.oci_region, compartment_id = excluded.compartment_id, instance_pool_id = COALESCE(excluded.instance_pool_id, regions.instance_pool_id), min_workers = excluded.min_workers, max_workers = excluded.max_workers, rollout_order = excluded.rollout_order, config_json = excluded.config_json, updated_at = excluded.updated_at",
           region.label,
@@ -3228,7 +3553,11 @@ export class FleetDO extends DurableObject<Env> {
         );
       }
       const placeholders = labels.map(() => "?").join(", ");
+      for (const removed of this.sql.exec<{ label: string }>(`SELECT label FROM regions WHERE label NOT IN (${placeholders})`, ...labels).toArray()) {
+        this.releaseRegionPool(removed.label);
+      }
       this.sql.exec(`DELETE FROM regions WHERE label NOT IN (${placeholders})`, ...labels);
+      this.saveCooldowns(new Map(Object.entries(this.getState<Record<string, number>>("autoscale_cooldowns") ?? {})));
       for (const spec of specs) {
         const existing = this.loadServiceRow(spec.name);
         if (existing !== undefined && !replace) {
@@ -3446,9 +3775,10 @@ export class FleetDO extends DurableObject<Env> {
   private async drainNode(nodeId: string, reason: string): Promise<NodeInfo> {
     const row = this.loadNodeRow(nodeId);
     if (row === undefined) throw new HttpError(404, "not_found", `Node ${nodeId} does not exist`);
-    const status: NodeStatus = row.status === "down" ? "down" : row.status === "drained" ? "drained" : "draining";
+    if (this.nodeBlocked(row, Date.now())) throw terminating();
+    const status: NodeStatus = row.status === "pending" ? "pending" : row.status === "down" ? "down" : row.status === "drained" ? "drained" : "draining";
     this.sql.exec("UPDATE nodes SET drain_requested = 1, drain_reason = ?, status = ? WHERE id = ?", reason, status, nodeId);
-    this.send(nodeId, { type: "drain", reason });
+    if (status !== "pending") this.send(nodeId, { type: "drain", reason });
     this.recordEvent("node_drained", nodeId, { phase: "requested", reason }, row.region);
     const now = Date.now();
     await this.reconcile(now);
@@ -3461,8 +3791,9 @@ export class FleetDO extends DurableObject<Env> {
     const row = this.loadNodeRow(nodeId);
     if (row === undefined) throw new HttpError(404, "not_found", `Node ${nodeId} does not exist`);
     const now = Date.now();
+    if (this.nodeBlocked(row, now)) throw terminating();
     const live = this.connected(nodeId) && now - row.last_seen_at <= DEFAULT_HEARTBEAT_TIMEOUT_MS;
-    const status: NodeStatus = live ? "active" : row.status === "pending" ? "pending" : "down";
+    const status: NodeStatus = row.status === "pending" ? "pending" : live ? "active" : "down";
     this.sql.exec("UPDATE nodes SET drain_requested = 0, drain_reason = NULL, status = ? WHERE id = ?", status, nodeId);
     this.recordEvent("node_connected", nodeId, { phase: "activated", status }, row.region);
     await this.reconcile(now);

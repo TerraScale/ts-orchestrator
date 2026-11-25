@@ -26,7 +26,7 @@ export type AutoscaleAction =
       maxSize: number;
       reason: string;
     }
-  | { kind: "drain_for_scale_down"; region: string; nodeId: string; reason: string }
+  | { kind: "drain_for_scale_down"; region: string; poolId: string; nodeId: string; reason: string }
   | {
       kind: "terminate_drained_worker";
       region: string;
@@ -50,6 +50,8 @@ export const REPLICA_SIGNAL_WINDOW_MS = 60_000;
 export const POOL_UP_SUSTAIN_MS = 180_000;
 export const POOL_UP_COOLDOWN_MS = 600_000;
 export const POOL_ENROLLMENT_GRACE_MS = 900_000;
+export const REAPED_INSTANCE_TOMBSTONE_MS = 1_800_000;
+export const PENDING_HELLO_GRACE_MS = 60_000;
 export const POOL_DOWN_WINDOW_MS = 900_000;
 export const POOL_DOWN_COOLDOWN_MS = 900_000;
 export const POOL_DOWN_MARGIN = 0.3;
@@ -66,6 +68,7 @@ export const POOL_HOT_PSI_CPU_PCT = 60;
 export const POOL_ENROLLMENT_FAILURE_BACKOFF_MS = 21_600_000;
 export const OCI_POOL_RUNNING_STATE = "RUNNING";
 export const INSTANCE_ID_LABEL = "oci.instance-id";
+export const INSTANCE_POOL_ID_LABEL = "oci.instance-pool-id";
 export const DATA_VOLUME_ID_LABEL = "oci.data-volume-id";
 
 const MINUTE_MS = 60_000;
@@ -114,10 +117,10 @@ export function planPoolScaleUp(input: PoolScaleUpInput): PoolScaleUpPlan {
 
 export function oldestUnjoinedMember<T extends { id: string; createdAt: number }>(
   candidates: readonly T[],
-  enrolled: ReadonlySet<string | null>,
+  protectedIds: ReadonlySet<string | null>,
 ): T | undefined {
   return candidates
-    .filter(({ id }) => !enrolled.has(id))
+    .filter(({ id }) => !protectedIds.has(id))
     .sort((a, b) => a.createdAt - b.createdAt || compareText(a.id, b.id))[0];
 }
 
@@ -125,12 +128,12 @@ export function poolEnrollmentFailureKey(region: string): string {
   return `pool_enrollment_failed_at:${region}`;
 }
 
-export function poolScaleUpCooldownKey(region: string): string {
-  return `pool-up:${region}`;
+export function poolScaleUpCooldownKey(region: string, poolId: string): string {
+  return `pool-up:${region}:${poolId}`;
 }
 
-export function poolScaleDownCooldownKey(region: string): string {
-  return `pool-down:${region}`;
+export function poolScaleDownCooldownKey(region: string, poolId: string): string {
+  return `pool-down:${region}:${poolId}`;
 }
 
 export function volumeGrowCooldownKey(nodeId: string): string {
@@ -330,14 +333,14 @@ function evaluatePools(input: AutoscaleInput, cooldowns: Map<string, number>): A
   const regions = [...input.regions].sort((a, b) => compareText(a.label, b.label));
   for (const region of regions) {
     const regionNodes = input.nodes.filter((node) => node.region === region.label);
-    const workers = regionNodes
-      .filter((node) => node.poolKind === "worker")
-      .sort((a, b) => compareText(a.id, b.id));
-    const observedWorkers = workers.filter((node) => node.status !== "down" && node.status !== "pending").length;
     const poolId = input.poolIds?.get(region.label);
     if (poolId === undefined) continue;
-    const upKey = poolScaleUpCooldownKey(region.label);
-    const downKey = poolScaleDownCooldownKey(region.label);
+    const workers = regionNodes
+      .filter((node) => node.poolKind === "worker" && node.labels[INSTANCE_POOL_ID_LABEL] === poolId)
+      .sort((a, b) => compareText(a.id, b.id));
+    const observedWorkers = workers.filter((node) => node.status !== "down" && node.status !== "pending").length;
+    const upKey = poolScaleUpCooldownKey(region.label, poolId);
+    const downKey = poolScaleDownCooldownKey(region.label, poolId);
     const unschedulable = input.unschedulable.filter((entry) => entry.region === region.label && entry.missing > 0);
     const activeNodes = regionNodes.filter((node) => node.status === "active" && !node.drainRequested);
     const hot = sustainedHot(activeNodes, input.metrics1m, input.nowMs);
@@ -387,7 +390,7 @@ function evaluatePools(input: AutoscaleInput, cooldowns: Map<string, number>): A
       });
       terminating = true;
     }
-    if (terminating || workers.some((worker) => worker.drainRequested && worker.status !== "down")) continue;
+    if (terminating || workers.some((worker) => worker.drainRequested && worker.status !== "down" && worker.status !== "pending")) continue;
 
     const activeWorkers = workers.filter((worker) => worker.status === "active" && !worker.drainRequested);
     if (activeWorkers.length <= Math.max(0, region.pools.worker.min)) continue;
@@ -408,6 +411,7 @@ function evaluatePools(input: AutoscaleInput, cooldowns: Map<string, number>): A
     actions.push({
       kind: "drain_for_scale_down",
       region: region.label,
+      poolId,
       nodeId: candidate.id,
       reason: `headroom_fits_${activeWorkers.length - 1}_workers`,
     });
