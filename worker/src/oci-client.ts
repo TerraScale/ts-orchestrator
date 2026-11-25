@@ -134,8 +134,8 @@ export class OciRestClient {
     }
   }
 
-  updateInstancePool(ociRegion: string, poolId: string, size: number, etag: string): Promise<unknown> {
-    return this.#request(ociRegion, "PUT", `/${API_VERSION}/instancePools/${encodeURIComponent(poolId)}`, { size }, etag);
+  updateInstancePool(ociRegion: string, poolId: string, size: number, etag: string, abort?: AbortSignal): Promise<unknown> {
+    return this.#request(ociRegion, "PUT", `/${API_VERSION}/instancePools/${encodeURIComponent(poolId)}`, { size }, etag, abort);
   }
 
   detachPoolInstance(ociRegion: string, poolId: string, instanceId: string): Promise<unknown> {
@@ -259,12 +259,15 @@ export class OciRestClient {
     return headers;
   }
 
-  async #request(ociRegion: string, method: string, path: string, payload?: unknown, etag?: string): Promise<OciResponse> {
+  async #request(ociRegion: string, method: string, path: string, payload?: unknown, etag?: string, abort?: AbortSignal): Promise<OciResponse> {
     const url = new URL(`${this.baseUrl(ociRegion)}${path}`);
     const body = method === "POST" || method === "PUT" ? (payload === null || payload === undefined ? "" : JSON.stringify(payload)) : undefined;
+    abort?.throwIfAborted();
     const headers = await this.signedHeaders(method, url, body);
+    abort?.throwIfAborted();
     if (etag !== undefined) headers.set("if-match", etag);
-    const signal = AbortSignal.timeout(OCI_TIMEOUT_MS);
+    const timeout = AbortSignal.timeout(OCI_TIMEOUT_MS);
+    const signal = abort === undefined ? timeout : AbortSignal.any([abort, timeout]);
     const response = await fetch(url.toString(), body === undefined ? { method, headers, signal } : { method, headers, body, signal });
     const text = await response.text();
     const requestId = response.headers.get("opc-request-id");
