@@ -922,6 +922,7 @@ export class FleetDO extends DurableObject<Env> {
     }
     if (!nodeColumns.some((column) => column.name === "enrolled_at")) {
       this.sql.exec("ALTER TABLE nodes ADD COLUMN enrolled_at INTEGER NOT NULL DEFAULT 0");
+      this.sql.exec("UPDATE nodes SET enrolled_at = ? WHERE status = 'pending' AND enrolled_at = 0", Date.now());
     }
     const challengeColumns = this.sql.exec<{ name: string }>("PRAGMA table_info(auth_challenges)").toArray();
     if (!challengeColumns.some((column) => column.name === "client_ip")) {
@@ -1425,8 +1426,18 @@ export class FleetDO extends DurableObject<Env> {
     const conflict = () => new HttpError(409, "conflict", "The node is already registered", "Remove the existing registration before enrolling again.");
     if (alreadyRegistered()) throw conflict();
     const labels: Record<string, string> = { [INSTANCE_ID_LABEL]: instanceId };
-    if (poolKind === "worker" && regionRow.instance_pool_id !== null && regionRow.instance_pool_id.length > 0) {
-      labels[INSTANCE_POOL_ID_LABEL] = regionRow.instance_pool_id;
+    const poolId = poolKind === "worker" && regionRow.instance_pool_id !== null && regionRow.instance_pool_id.length > 0 ? regionRow.instance_pool_id : null;
+    if (poolId !== null && instanceId.startsWith("ocid1.instance.") && !localDevAllowed(url, this.env)) {
+      const oci = await this.oci();
+      if (oci !== null) {
+        const members = await oci.listInstancePoolInstances(regionRow.oci_region, poolId, regionRow.compartment_id);
+        if (this.regionPoolId(region) !== poolId || !members.some(({ id }) => id === instanceId)) {
+          throw new HttpError(409, "conflict", "Instance is not a member of the region's configured worker pool");
+        }
+        labels[INSTANCE_POOL_ID_LABEL] = poolId;
+      }
+    } else if (poolId !== null) {
+      labels[INSTANCE_POOL_ID_LABEL] = poolId;
     }
     if (poolKind === "stateful" && instanceId.startsWith("ocid1.instance.")) {
       const oci = await this.oci();
@@ -2675,7 +2686,9 @@ export class FleetDO extends DurableObject<Env> {
     this.ctx.storage.transactionSync(() => {
       for (const nodeId of stalePending) this.deleteNodeRows(nodeId);
       this.setState(reapedInstanceKey(target.id), detachedAt + REAPED_INSTANCE_TOMBSTONE_MS);
-      if ((this.workerJoins.get(action.region) ?? 0) === joinsBeforeReap) this.setState(failureKey, detachedAt);
+      if ((this.workerJoins.get(action.region) ?? 0) === joinsBeforeReap && this.regionPoolId(action.region) === action.poolId) {
+        this.setState(failureKey, detachedAt);
+      }
       this.recordEvent(
         "pool_scale_down",
         target.id,
@@ -2716,10 +2729,9 @@ export class FleetDO extends DurableObject<Env> {
     const orphans = this.sql.exec<{ id: string; instance_id: string | null }>(
       `SELECT id, json_extract(labels_json, '$."oci.instance-id"') AS instance_id FROM nodes
        WHERE region = ? AND pool_kind = 'worker' AND status = 'pending' AND enrolled_at <= ?
-         AND coalesce(json_extract(labels_json, '$."oci.instance-pool-id"'), ?) = ?`,
+         AND json_extract(labels_json, '$."oci.instance-pool-id"') = ?`,
       region,
       enrolledBefore,
-      poolId,
       poolId,
     ).toArray().flatMap(({ id, instance_id }) =>
       instance_id !== null && instance_id.startsWith("ocid1.instance.") && !poolMembers.has(instance_id) && !this.reapingInstances.has(instance_id)
@@ -3344,6 +3356,7 @@ export class FleetDO extends DurableObject<Env> {
               ? region.instancePoolId
               : null;
         const orderIndex = order.indexOf(region.label);
+        if (poolId !== null && this.regionPoolId(region.label) !== poolId) this.deleteState(poolEnrollmentFailureKey(region.label));
         this.sql.exec(
           "INSERT INTO regions (label, oci_region, compartment_id, instance_pool_id, min_workers, max_workers, rollout_order, config_json, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(label) DO UPDATE SET oci_region = excluded.oci_region, compartment_id = excluded.compartment_id, instance_pool_id = COALESCE(excluded.instance_pool_id, regions.instance_pool_id), min_workers = excluded.min_workers, max_workers = excluded.max_workers, rollout_order = excluded.rollout_order, config_json = excluded.config_json, updated_at = excluded.updated_at",
           region.label,
