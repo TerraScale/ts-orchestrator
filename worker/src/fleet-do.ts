@@ -2616,12 +2616,11 @@ export class FleetDO extends DurableObject<Env> {
     this.setState("autoscale_at", now);
     const reconciledRows = this.loadRegionRows();
     if (reconciledRows.length === 0) return;
-    const listedPools = await this.reconcilePoolMembership(reconciledRows, now);
+    const { listed: listedPools, verified } = await this.reconcilePoolMembership(reconciledRows, now);
     const regionRows = this.loadRegionRows();
-    const reconciledPools = new Map(reconciledRows.map(({ label, instance_pool_id: poolId }) => [label, poolId]));
     const unreconciled = new Set(this.env.LOCAL_DEV === "true" ? [] : regionRows
-      .filter(({ label, instance_pool_id: poolId }) => reconciledPools.get(label) !== poolId &&
-        this.workerLabelRows(label).some(({ labels }) => labels[INSTANCE_POOL_ID_LABEL] === undefined && isOciInstanceId(labels[INSTANCE_ID_LABEL])))
+      .filter(({ label, instance_pool_id: poolId }) => poolId !== null && poolId.length > 0 && verified.get(label) !== poolId &&
+        this.hasUnlabeledOciWorker(label))
       .map(({ label }) => label));
     const regions = this.loadRegions();
     const nodes = this.loadNodes();
@@ -2745,25 +2744,34 @@ export class FleetDO extends DurableObject<Env> {
     });
   }
 
-  private async reconcilePoolMembership(regionRows: readonly RegionRow[], now: number): Promise<ReadonlyMap<string, readonly PoolInstance[]>> {
+  private async reconcilePoolMembership(
+    regionRows: readonly RegionRow[],
+    now: number,
+  ): Promise<{ listed: ReadonlyMap<string, readonly PoolInstance[]>; verified: ReadonlyMap<string, string> }> {
     const listed = new Map<string, readonly PoolInstance[]>();
-    if (this.env.LOCAL_DEV === "true") return listed;
+    const verified = new Map(regionRows.flatMap(({ label, instance_pool_id: poolId }) =>
+      poolId === null || poolId.length === 0 ? [] : [[label, poolId] as const]));
+    const result = { listed, verified };
+    if (this.env.LOCAL_DEV === "true") return result;
     const enrolledBefore = now - POOL_ENROLLMENT_GRACE_MS;
     const workers = this.workerLabelRows();
     const due = regionRows.filter(({ label, instance_pool_id: poolId }) =>
       poolId !== null && poolId.length > 0 && workers.some((worker) => worker.region === label && (
         (worker.labels[INSTANCE_POOL_ID_LABEL] === undefined && isOciInstanceId(worker.labels[INSTANCE_ID_LABEL])) ||
         (worker.status === "pending" && worker.enrolled_at <= enrolledBefore && worker.labels[INSTANCE_POOL_ID_LABEL] === poolId))));
-    if (due.length === 0) return listed;
+    if (due.length === 0) return result;
     const oci = await this.oci();
-    if (oci === null) return listed;
+    if (oci === null) return result;
     for (const region of due) {
       const poolId = region.instance_pool_id;
       if (poolId === null) continue;
+      verified.delete(region.label);
+      if (this.regionPoolId(region.label) !== poolId) continue;
       const signal = this.poolSignal(region.label);
       try {
         const members = await oci.listInstancePoolInstances(region.oci_region, poolId, region.compartment_id, signal);
         if (signal.aborted || this.regionPoolId(region.label) !== poolId) continue;
+        verified.set(region.label, poolId);
         listed.set(poolId, members);
         const memberIds = new Set(members.map(({ id }) => id));
         this.labelVerifiedWorkers(region.label, poolId, memberIds);
@@ -2774,7 +2782,11 @@ export class FleetDO extends DurableObject<Env> {
         this.setState("last_autoscale_error", { at: now, action: "reconcile_pool_membership", message: error instanceof Error ? error.message : String(error) });
       }
     }
-    return listed;
+    return result;
+  }
+
+  private hasUnlabeledOciWorker(region: string): boolean {
+    return this.workerLabelRows(region).some(({ labels }) => labels[INSTANCE_POOL_ID_LABEL] === undefined && isOciInstanceId(labels[INSTANCE_ID_LABEL]));
   }
 
   private workerLabelRows(region?: string): WorkerLabelRow[] {
@@ -2833,7 +2845,7 @@ export class FleetDO extends DurableObject<Env> {
     if (current === undefined || current.token_hash !== row.token_hash || this.regionPoolId(row.region) !== poolId) return "not_member";
     if (current.labels[INSTANCE_POOL_ID_LABEL] !== undefined) return current.labels[INSTANCE_POOL_ID_LABEL] === poolId ? "verified" : "not_member";
     if (current.status !== "pending") return "not_member";
-    if (members !== null && (instanceId === undefined || !members.has(instanceId))) return "not_member";
+    if (members !== null && !members.has(instanceId)) return "not_member";
     return this.stampPoolLabel(current, poolId) ? "verified" : "not_member";
   }
 
@@ -3525,7 +3537,8 @@ export class FleetDO extends DurableObject<Env> {
               ? region.instancePoolId
               : null;
         const orderIndex = order.indexOf(region.label);
-        if (poolId !== null && this.regionPoolId(region.label) !== poolId) this.replaceRegionPool(region.label, poolId);
+        const previousPoolId = this.regionPoolId(region.label);
+        if (poolId !== null && previousPoolId !== null && previousPoolId.length > 0 && previousPoolId !== poolId) this.replaceRegionPool(region.label, poolId);
         this.sql.exec(
           "INSERT INTO regions (label, oci_region, compartment_id, instance_pool_id, min_workers, max_workers, rollout_order, config_json, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(label) DO UPDATE SET oci_region = excluded.oci_region, compartment_id = excluded.compartment_id, instance_pool_id = COALESCE(excluded.instance_pool_id, regions.instance_pool_id), min_workers = excluded.min_workers, max_workers = excluded.max_workers, rollout_order = excluded.rollout_order, config_json = excluded.config_json, updated_at = excluded.updated_at",
           region.label,

@@ -390,7 +390,7 @@ function evaluatePools(input: AutoscaleInput, cooldowns: Map<string, number>): A
       });
       terminating = true;
     }
-    if (terminating || workers.some((worker) => worker.drainRequested && worker.status !== "down")) continue;
+    if (terminating || workers.some((worker) => worker.drainRequested && worker.status !== "down" && worker.status !== "pending")) continue;
 
     const activeWorkers = workers.filter((worker) => worker.status === "active" && !worker.drainRequested);
     if (activeWorkers.length <= Math.max(0, region.pools.worker.min)) continue;
