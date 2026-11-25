@@ -588,9 +588,9 @@ ok "ES256 atlas-publish-v1 placement accepted"
 curl -sf "$W/atlas/v1/keys" > "$WORK/jwks.json"
 jq -e '.keys | length == 1 and .[0].kty == "EC" and .[0].crv == "P-256" and .[0].alg == "ES256" and (.[0] | has("d") | not)' "$WORK/jwks.json" >/dev/null || die "/v1/keys is not a public P-256 JWKS"
 ok "/v1/keys serves the public ES256 JWKS"
-discovery_ready() { curl -sf "$W/atlas/v1/discovery?fresh=1" | jq -e '.v == 1 and .closest == "gru" and (.regions | length) == 3 and .regions[0].id == "gru" and .regions[0].health == "ok"' >/dev/null; }
+discovery_ready() { curl -sf "$W/atlas/v1/discovery" | jq -e '.v == 1 and .closest == "gru" and (.regions | length) == 3 and .regions[0].id == "gru" and .regions[0].health == "ok"' >/dev/null; }
 wait_for "/v1/discovery ranks gru first with closest populated" 60 discovery_ready
-curl -sf "$W/atlas/v1/resolve?project=e2eproj&database=maindb&fresh=1" > "$WORK/resolve.json"
+curl -sf "$W/atlas/v1/resolve?project=e2eproj&database=maindb" > "$WORK/resolve.json"
 jq -e --arg api "http://127.0.0.1:$EDGE_HTTP" '.v == 1 and .region == "gru" and .api == $api and .placement == "known" and (.pin | split(".") | length == 3)' "$WORK/resolve.json" >/dev/null || die "resolve returned $(cat "$WORK/resolve.json")"
 helper verify-pin "$WORK/jwks.json" "$(jq -r .pin "$WORK/resolve.json")" > "$WORK/pin.json"
 jq -e '.iss == "atlas.terrascale.tech" and .project == "e2eproj" and .database == "maindb" and .region == "gru" and .exp > .iat' "$WORK/pin.json" >/dev/null || die "pin claims are wrong: $(cat "$WORK/pin.json")"
@@ -676,6 +676,8 @@ phase_is() { [[ "$(rollout_phase "$1")" == "$2" ]]; }
 "${TS[@]}" deploy e2e-web registry.e2e.local/web:v2 --region gru > "$LOGS/deploy-v2.txt"
 chaos '{"kind":"inject_5xx","service":"e2e-web","ratePct":60,"durationSeconds":600}' >/dev/null
 wait_for "canary of web:v2 rolled back automatically" 150 phase_is registry.e2e.local/web:v2 rolled_back
+api GET /api/rollouts | jq -e '.rollouts | any(.serviceName == "e2e-web" and .targetImage == "registry.e2e.local/web:v2" and .error == "canary_5xx_breach")' >/dev/null ||
+  die "web:v2 did not roll back on the canary's 5xx metrics"
 api GET /api/services | jq -e '.services[] | select(.name == "e2e-web") | .image == "registry.e2e.local/web:v1"' >/dev/null || die "e2e-web did not return to web:v1 after rollback"
 ok "e2e-web is back on web:v1"
 chaos '{"kind":"inject_5xx","service":"e2e-web","ratePct":0,"durationSeconds":1}' >/dev/null

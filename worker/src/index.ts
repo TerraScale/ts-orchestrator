@@ -52,8 +52,9 @@ const ATLAS_CORS_HEADERS: Record<string, string> = {
   "Access-Control-Max-Age": "86400",
 };
 const MEMORY_TTL_MS = 5_000;
-const KV_TTL_MS = 60_000;
-const KV_EXPIRATION_TTL_S = 86_400;
+const TOPOLOGY_KV_TTL_MS = 60_000;
+const PLACEMENT_MISS_TTL_MS = 5_000;
+const PLACEMENT_MISSES_KEEP = 1_024;
 const STORE_TIMEOUT_MS = 2_500;
 const MAX_PUBLISH_BYTES = 128 * 1024;
 const PUBLIC_API_PATHS: ReadonlySet<string> = new Set(["/api/auth/ssh/challenge", "/api/auth/ssh/verify", "/api/nodes/enroll"]);
@@ -80,6 +81,7 @@ interface ReadResult<T> {
 }
 
 const memory = new Map<string, MemoryEntry>();
+const placementMisses = new Map<string, number>();
 
 function atlasError(code: string, message: string, fix: string, status: number, extra?: Record<string, string>): Response {
   return Response.json({ error: { code, message, fix } }, { status, headers: { ...ATLAS_CORS_HEADERS, ...extra } });
@@ -96,6 +98,15 @@ function remember(key: string, entry: AtlasCacheRecord<AtlasRecord>): void {
     if (oldest.done !== true) memory.delete(oldest.value);
   }
   memory.set(key, { ...entry, remembered: Date.now() });
+}
+
+function rememberPlacementMiss(key: string): void {
+  placementMisses.delete(key);
+  if (placementMisses.size >= PLACEMENT_MISSES_KEEP) {
+    const oldest = placementMisses.keys().next();
+    if (oldest.done !== true) placementMisses.delete(oldest.value);
+  }
+  placementMisses.set(key, Date.now());
 }
 
 function current(at: number, ttl: number): boolean {
@@ -121,72 +132,63 @@ async function readStore<T>(env: Env, path: string): Promise<T | null> {
   }
 }
 
+function available(doc: AtlasRecord): boolean {
+  return !("database" in doc) || doc.region !== null;
+}
+
 async function load<T extends AtlasRecord>(
   env: Env,
-  ctx: ExecutionContext,
   key: string,
-  fresh: boolean,
   read: () => Promise<T | null>,
 ): Promise<ReadResult<T>> {
+  const placement = key !== TOPOLOGY_KEY;
   let cached = memory.get(key);
-  if (!fresh) {
-    if (cached !== undefined && current(cached.remembered, MEMORY_TTL_MS) && current(cached.at, KV_TTL_MS)) {
-      return { doc: cached.doc as T | null, cache: "HIT", stale: false };
-    }
-    try {
-      const kv = await env.ATLAS_KV.get<AtlasCacheRecord<T>>(key, "json");
-      if (kv !== null && typeof kv.at === "number" && "doc" in kv) {
-        if (current(kv.at, KV_TTL_MS)) {
-          remember(key, kv);
-          return { doc: kv.doc, cache: "HIT", stale: false };
-        }
-        if (cached === undefined || kv.at > cached.at) cached = { ...kv, remembered: 0 };
+  if (cached !== undefined && current(cached.remembered, MEMORY_TTL_MS) && available(cached.doc)) {
+    return { doc: cached.doc as T, cache: "HIT", stale: false };
+  }
+  const missedAt = placementMisses.get(key);
+  if (missedAt !== undefined && current(missedAt, PLACEMENT_MISS_TTL_MS)) {
+    return { doc: null, cache: "HIT", stale: false };
+  }
+  try {
+    const kv = await env.ATLAS_KV.get<AtlasCacheRecord<T>>(key, "json");
+    const latest = memory.get(key) ?? cached;
+    cached = latest;
+    if (kv?.doc != null && typeof kv.at === "number" && (latest === undefined || kv.doc.updated >= latest.doc.updated)) {
+      cached = { ...kv, remembered: 0 };
+      if ((placement || current(kv.at, TOPOLOGY_KV_TTL_MS)) && available(kv.doc)) {
+        remember(key, kv);
+        return { doc: kv.doc, cache: "HIT", stale: false };
       }
-    } catch (error) {
-      console.error("atlas KV read failed", error);
     }
+  } catch (error) {
+    console.error("atlas KV read failed", error);
   }
   let doc: T | null;
   try {
     doc = await read();
   } catch (error) {
-    cached = memory.get(key) ?? cached;
-    if (cached === undefined) {
-      try {
-        const kv = await env.ATLAS_KV.get<AtlasCacheRecord<T>>(key, "json");
-        if (kv !== null && typeof kv.at === "number" && "doc" in kv) cached = { ...kv, remembered: 0 };
-      } catch (kvError) {
-        console.error("atlas KV recovery read failed", kvError);
-      }
-    }
-    if (cached !== undefined) return { doc: cached.doc as T | null, cache: "HIT", stale: true };
+    const latest = memory.get(key);
+    if (latest !== undefined && (cached === undefined || latest.doc.updated >= cached.doc.updated)) cached = latest;
+    if (cached !== undefined) return { doc: cached.doc as T, cache: "HIT", stale: true };
     throw error;
   }
-  if (doc !== null) {
-    const entry = cacheRecord(doc);
-    remember(key, entry);
-    ctx.waitUntil(
-      env.ATLAS_KV.put(key, JSON.stringify(entry), { expirationTtl: KV_EXPIRATION_TTL_S }).catch((error: unknown) => {
-        console.error("atlas KV refill failed", error);
-      }),
-    );
+  const latest = memory.get(key);
+  if (latest !== undefined && (doc === null || latest.doc.updated > doc.updated)) {
+    return { doc: latest.doc as T, cache: "HIT", stale: false };
   }
+  if (doc !== null) remember(key, cacheRecord(doc));
+  if (placement && (doc === null || !available(doc))) rememberPlacementMiss(key);
   return { doc, cache: "MISS", stale: false };
 }
 
-function getTopology(env: Env, ctx: ExecutionContext, fresh: boolean): Promise<ReadResult<AtlasTopology>> {
-  return load(env, ctx, TOPOLOGY_KEY, fresh, () => readStore<AtlasTopology>(env, "/topology"));
+function getTopology(env: Env): Promise<ReadResult<AtlasTopology>> {
+  return load(env, TOPOLOGY_KEY, () => readStore<AtlasTopology>(env, "/topology"));
 }
 
-function getPlacement(
-  env: Env,
-  ctx: ExecutionContext,
-  project: string,
-  database: string,
-  fresh: boolean,
-): Promise<ReadResult<AtlasPlacement>> {
+function getPlacement(env: Env, project: string, database: string): Promise<ReadResult<AtlasPlacement>> {
   const query = new URLSearchParams({ project, database });
-  return load(env, ctx, placementKey(project, database), fresh, () =>
+  return load(env, placementKey(project, database), () =>
     readStore<AtlasPlacement>(env, `/placement?${query.toString()}`),
   );
 }
@@ -232,8 +234,8 @@ function rankedRegions(topology: AtlasTopology, point: GeoPoint | null, staleLim
     });
 }
 
-async function discovery(request: Request, env: Env, ctx: ExecutionContext, fresh: boolean): Promise<Response> {
-  const { doc: topology, cache, stale } = await getTopology(env, ctx, fresh);
+async function discovery(request: Request, env: Env): Promise<Response> {
+  const { doc: topology, cache, stale } = await getTopology(env);
   if (topology === null) {
     return atlasError(
       "discovery_unavailable",
@@ -269,7 +271,7 @@ async function discovery(request: Request, env: Env, ctx: ExecutionContext, fres
   });
 }
 
-async function resolve(request: Request, env: Env, ctx: ExecutionContext, url: URL, fresh: boolean): Promise<Response> {
+async function resolve(request: Request, env: Env, url: URL): Promise<Response> {
   const project = url.searchParams.get("project") ?? "";
   const database = url.searchParams.get("database");
   if (!atlasProjectId(project)) {
@@ -283,7 +285,7 @@ async function resolve(request: Request, env: Env, ctx: ExecutionContext, url: U
     });
   }
   const headers: Record<string, string> = { ...ATLAS_CORS_HEADERS, "Cache-Control": "no-store" };
-  const { doc: topology, cache, stale: topologyStale } = await getTopology(env, ctx, fresh);
+  const { doc: topology, cache, stale: topologyStale } = await getTopology(env);
   headers["X-TerraScale-Cache"] = cache;
   if (topology === null) {
     return atlasError(
@@ -295,7 +297,7 @@ async function resolve(request: Request, env: Env, ctx: ExecutionContext, url: U
     );
   }
   const placementRead: ReadResult<AtlasPlacement> =
-    database === null ? { doc: null, cache: "HIT", stale: false } : await getPlacement(env, ctx, project, database, fresh);
+    database === null ? { doc: null, cache: "HIT", stale: false } : await getPlacement(env, project, database);
   if (placementRead.cache === "MISS") headers["X-TerraScale-Cache"] = "MISS";
   const stale = topologyStale || placementRead.stale;
   const staleLimit = staleAfterS(env);
@@ -484,6 +486,7 @@ async function publish(request: Request, env: Env): Promise<Response> {
     );
   } finally {
     memory.clear();
+    placementMisses.clear();
   }
 }
 
@@ -491,14 +494,13 @@ function atlasRequest(url: URL, env: Env): boolean {
   return url.hostname === env.ATLAS_HOST || (localDevAllowed(url, env) && url.pathname.startsWith("/atlas/"));
 }
 
-async function handleAtlas(request: Request, env: Env, ctx: ExecutionContext, url: URL): Promise<Response> {
+async function handleAtlas(request: Request, env: Env, url: URL): Promise<Response> {
   const path = url.hostname === env.ATLAS_HOST ? url.pathname : url.pathname.slice("/atlas".length);
-  const fresh = url.searchParams.get("fresh") === "1";
   let response: Response;
   try {
     if (request.method === "OPTIONS") response = new Response(null, { status: 204 });
-    else if (request.method === "GET" && path === "/v1/discovery") response = await discovery(request, env, ctx, fresh);
-    else if (request.method === "GET" && path === "/v1/resolve") response = await resolve(request, env, ctx, url, fresh);
+    else if (request.method === "GET" && path === "/v1/discovery") response = await discovery(request, env);
+    else if (request.method === "GET" && path === "/v1/resolve") response = await resolve(request, env, url);
     else if (request.method === "GET" && path === "/v1/keys") response = await keys(env);
     else if (request.method === "POST" && path === "/v1/publish") response = await publish(request, env);
     else response = atlasError("not_found", "No such route", "Use an Atlas v1 route.", 404);
@@ -634,9 +636,9 @@ async function handleOrch(request: Request, env: Env, url: URL): Promise<Respons
 }
 
 export default {
-  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
-    if (atlasRequest(url, env)) return handleAtlas(request, env, ctx, url);
+    if (atlasRequest(url, env)) return handleAtlas(request, env, url);
     if (url.hostname !== env.ORCH_HOST && !localDevAllowed(url, env)) return orchError("not_found", "Not found", 404);
     try {
       return await handleOrch(request, env, url);

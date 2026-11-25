@@ -11,10 +11,10 @@ export function placementKey(project: string, database: string): string {
 
 export interface AtlasCacheRecord<T> {
   at: number;
-  doc: T | null;
+  doc: T;
 }
 
-export function cacheRecord<T>(doc: T | null): AtlasCacheRecord<T> {
+export function cacheRecord<T>(doc: T): AtlasCacheRecord<T> {
   return { at: Date.now(), doc };
 }
 
