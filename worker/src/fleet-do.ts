@@ -1102,7 +1102,12 @@ export class FleetDO extends DurableObject<Env> {
       ? this.sql
           .exec<RolloutRow>("SELECT * FROM rollouts WHERE state NOT IN ('succeeded', 'rolled_back', 'failed') ORDER BY started_at")
           .toArray()
-      : this.sql.exec<RolloutRow>("SELECT * FROM rollouts ORDER BY started_at DESC LIMIT ?", limit).toArray();
+      : this.sql
+          .exec<RolloutRow>(
+            "SELECT * FROM rollouts WHERE state NOT IN ('succeeded', 'rolled_back', 'failed') OR id IN (SELECT id FROM rollouts ORDER BY started_at DESC, id DESC LIMIT ?) ORDER BY started_at DESC, id DESC",
+            limit,
+          )
+          .toArray();
     return rows.map((row) => this.rolloutFromRow(row));
   }
 
