@@ -11,6 +11,8 @@ public sealed class EventKindJsonConverter : JsonConverter<EventKind>
         .Where(static kind => kind is not EventKind.Unknown)
         .ToFrozenDictionary(WireName, StringComparer.Ordinal);
 
+    public override bool HandleNull => true;
+
     public override EventKind Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) => reader.TokenType switch
     {
         JsonTokenType.String => reader.GetString() is { } wire && Known.TryGetValue(wire, out var kind) ? kind : EventKind.Unknown,
