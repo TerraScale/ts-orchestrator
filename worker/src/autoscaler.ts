@@ -114,10 +114,10 @@ export function planPoolScaleUp(input: PoolScaleUpInput): PoolScaleUpPlan {
 
 export function oldestUnjoinedMember<T extends { id: string; createdAt: number }>(
   candidates: readonly T[],
-  enrolled: ReadonlySet<string | null>,
+  protectedIds: ReadonlySet<string | null>,
 ): T | undefined {
   return candidates
-    .filter(({ id }) => !enrolled.has(id))
+    .filter(({ id }) => !protectedIds.has(id))
     .sort((a, b) => a.createdAt - b.createdAt || compareText(a.id, b.id))[0];
 }
 

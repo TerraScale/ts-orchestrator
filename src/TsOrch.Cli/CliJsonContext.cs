@@ -104,7 +104,6 @@ internal sealed record class LogLine(string NodeId, string PlacementId, LogChann
 [JsonSerializable(typeof(PlacementMode))]
 [JsonSerializable(typeof(PriorityTier))]
 [JsonSerializable(typeof(RolloutPhase))]
-[JsonSerializable(typeof(EventKind))]
 [JsonSerializable(typeof(OperatorRole))]
 [JsonSerializable(typeof(ApplyOutcome))]
 internal sealed partial class CliJsonContext : JsonSerializerContext;

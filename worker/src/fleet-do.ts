@@ -863,6 +863,8 @@ export class FleetDO extends DurableObject<Env> {
   private readonly logRequests = new Map<string, LogRequest>();
   private readonly logStreams = new Map<string, LogStream>();
   private readonly eventSubscribers = new Set<EventSubscriber>();
+  private readonly reapingInstances = new Set<string>();
+  private readonly workerJoins = new Map<string, number>();
   private ociClient: Promise<OciRestClient | null> | undefined;
   private tlsEnsureInFlight: Promise<unknown> | undefined;
   private nodeSyncPending = Promise.resolve();
@@ -1416,6 +1418,9 @@ export class FleetDO extends DurableObject<Env> {
         if (identity.index !== null) labels["oci.stateful-index"] = identity.index;
       }
     }
+    if (this.reapingInstances.has(instanceId)) {
+      throw new HttpError(409, "conflict", "The instance is being terminated", "Boot a new instance instead of re-enrolling this one.");
+    }
     const inserted = this.sql.exec(
       "INSERT INTO nodes (id, region, pool_kind, vcn_ip, labels_json, token_hash) SELECT ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM nodes WHERE id = ? OR json_extract(labels_json, '$.\"oci.instance-id\"') = ?) RETURNING id",
       nodeId, region, poolKind, vcnIp, JSON.stringify(labels), tokenHash, nodeId, instanceId,
@@ -1592,6 +1597,11 @@ export class FleetDO extends DurableObject<Env> {
       return;
     }
     const stored = parseJson<Record<string, string>>(row.labels_json, {});
+    const instanceId = stored[INSTANCE_ID_LABEL];
+    if (instanceId !== undefined && this.reapingInstances.has(instanceId)) {
+      this.closeSocket(ws, 4010, "terminating");
+      return;
+    }
     const labels = Object.fromEntries(
       Object.entries(isRecord(hello.labels) ? hello.labels : {})
         .filter(([key, value]) => !key.startsWith("oci.") && typeof value === "string"),
@@ -1622,6 +1632,7 @@ export class FleetDO extends DurableObject<Env> {
       console.warn("hello region/pool mismatch ignored", attachment.nodeId, hello.region, hello.poolKind);
     }
     if (attachment.poolKind === "worker" && previous === "pending" && status === "active") {
+      this.workerJoins.set(attachment.region, (this.workerJoins.get(attachment.region) ?? 0) + 1);
       this.deleteState(poolEnrollmentFailureKey(attachment.region));
     }
     this.recordEvent("node_connected", attachment.nodeId, { previous, agentVersion: hello.agentVersion, status }, attachment.region);
@@ -2616,20 +2627,48 @@ export class FleetDO extends DurableObject<Env> {
     const members = await oci.listInstancePoolInstances(action.ociRegion, action.poolId, action.compartmentId);
     const bootCutoff = Date.now() - POOL_ENROLLMENT_GRACE_MS;
     const aged = members.filter(({ state, createdAt }) => state === "RUNNING" && createdAt <= bootCutoff);
-    const enrolled = new Set(this.sql.exec<{ instance_id: string | null }>(
-      `SELECT json_extract(labels_json, '$."oci.instance-id"') AS instance_id FROM nodes WHERE region = ? AND pool_kind = 'worker'`,
+    const protectedInstances = new Set<string | null>(this.reapingInstances);
+    for (const { instance_id } of this.sql.exec<{ instance_id: string | null }>(
+      `SELECT json_extract(labels_json, '$."oci.instance-id"') AS instance_id FROM nodes WHERE region = ? AND pool_kind = 'worker' AND status != 'pending'`,
       action.region,
-    ).toArray().map(({ instance_id }) => instance_id));
-    const target = oldestUnjoinedMember(aged, enrolled);
+    ).toArray()) protectedInstances.add(instance_id);
+    const target = oldestUnjoinedMember(aged, protectedInstances);
     if (target === undefined) return;
-    await oci.detachPoolInstance(action.ociRegion, action.poolId, target.id);
-    this.setState(failureKey, Date.now());
-    this.recordEvent(
-      "pool_scale_down",
-      target.id,
-      { instanceId: target.id, poolId: action.poolId, reason: "enrollment_timeout", createdAt: new Date(target.createdAt).toISOString() },
+    const joinsBeforeReap = this.workerJoins.get(action.region) ?? 0;
+    this.reapingInstances.add(target.id);
+    try {
+      await oci.detachPoolInstance(action.ociRegion, action.poolId, target.id);
+    } finally {
+      this.reapingInstances.delete(target.id);
+    }
+    const stalePending = this.sql.exec<{ id: string }>(
+      `SELECT id FROM nodes WHERE region = ? AND pool_kind = 'worker' AND status = 'pending' AND json_extract(labels_json, '$."oci.instance-id"') = ?`,
       action.region,
-    );
+      target.id,
+    ).toArray().map(({ id }) => id);
+    for (const nodeId of stalePending) {
+      for (const ws of this.sockets(nodeId)) this.closeSocket(ws, 4010, "terminated");
+    }
+    this.ctx.storage.transactionSync(() => {
+      for (const nodeId of stalePending) this.deleteNodeRows(nodeId);
+      if ((this.workerJoins.get(action.region) ?? 0) === joinsBeforeReap) this.setState(failureKey, Date.now());
+      this.recordEvent(
+        "pool_scale_down",
+        target.id,
+        { instanceId: target.id, poolId: action.poolId, reason: "enrollment_timeout", createdAt: new Date(target.createdAt).toISOString(), nodeId: stalePending[0] },
+        action.region,
+      );
+    });
+  }
+
+  private deleteNodeRows(nodeId: string): void {
+    this.sql.exec("DELETE FROM placements WHERE node_id = ?", nodeId);
+    this.sql.exec("DELETE FROM metrics_10s WHERE node_id = ?", nodeId);
+    this.sql.exec("DELETE FROM metrics_1m WHERE node_id = ?", nodeId);
+    this.sql.exec("DELETE FROM nodes WHERE id = ?", nodeId);
+    this.deleteState(`sent_desired:${nodeId}`);
+    this.deleteState(`sent_routes:${nodeId}`);
+    this.deleteState(`volume_grow:${nodeId}`);
   }
 
   private async executeAction(
@@ -2708,13 +2747,7 @@ export class FleetDO extends DurableObject<Env> {
         if (this.loadNodeRow(action.nodeId)?.token_hash !== row.token_hash) return false;
         for (const ws of this.sockets(action.nodeId)) this.closeSocket(ws, 4010, "terminated");
         this.ctx.storage.transactionSync(() => {
-          this.sql.exec("DELETE FROM placements WHERE node_id = ?", action.nodeId);
-          this.sql.exec("DELETE FROM metrics_10s WHERE node_id = ?", action.nodeId);
-          this.sql.exec("DELETE FROM metrics_1m WHERE node_id = ?", action.nodeId);
-          this.sql.exec("DELETE FROM nodes WHERE id = ?", action.nodeId);
-          this.deleteState(`sent_desired:${action.nodeId}`);
-          this.deleteState(`sent_routes:${action.nodeId}`);
-          this.deleteState(`volume_grow:${action.nodeId}`);
+          this.deleteNodeRows(action.nodeId);
           this.recordEvent("pool_scale_down", action.nodeId, { instanceId: action.instanceId, poolId: action.poolId, reason: action.reason }, action.region);
         });
         return true;
