@@ -58,7 +58,7 @@ export const POOL_DOWN_MARGIN = 0.3;
 export const VOLUME_USAGE_THRESHOLD_PCT = 75;
 export const VOLUME_SUSTAIN_MS = 300_000;
 export const VOLUME_GROW_GIB = 50;
-export const VOLUME_MAX_GIB = 1024;
+export const VOLUME_MAX_GIB = 250;
 export const VOLUME_COOLDOWN_MS = 1_800_000;
 export const HOT_CPU_PCT = 80;
 export const HOT_PSI = 25;
@@ -79,6 +79,8 @@ interface ReplicaSignals {
   memRatio: number;
   psi: number;
   p95Ms: number | null;
+  readyReplicas: number;
+  sampledReplicas: number;
 }
 
 function compareText(a: string, b: string): number {
@@ -144,6 +146,14 @@ export function hasVolumeGrowthBudget(last: number | undefined, now: number): bo
   return last === undefined || now - last >= VOLUME_COOLDOWN_MS;
 }
 
+export function volumeReachedTarget(reportedGiB: number, targetGiB: number, previousGiB = 0): boolean {
+  if (!Number.isFinite(reportedGiB) || reportedGiB <= 0) return false;
+  if (Number.isFinite(previousGiB) && previousGiB > 0 && reportedGiB <= previousGiB) return false;
+  if (!Number.isFinite(targetGiB) || targetGiB <= 0) return true;
+  const floor = targetGiB - Math.max(3, Math.ceil((targetGiB * 35) / 1000));
+  return reportedGiB >= floor;
+}
+
 function cooled(cooldowns: Map<string, number>, key: string, nowMs: number, windowMs: number): boolean {
   const last = cooldowns.get(key);
   return last === undefined || last + windowMs <= nowMs;
@@ -168,24 +178,36 @@ function replicaSignals(
     if (placement.nodeId !== undefined) nodeIds.add(placement.nodeId);
   }
   if (placementIds.size === 0) return null;
-  const cpu: number[] = [];
-  const mem: number[] = [];
-  const psi: number[] = [];
+  const cpuByPlacement = new Map<string, number[]>();
+  const memByPlacement = new Map<string, number[]>();
+  const psiByNode = new Map<string, number[]>();
+  const push = (samples: Map<string, number[]>, key: string, value: number): void => {
+    const list = samples.get(key);
+    if (list === undefined) samples.set(key, [value]);
+    else list.push(value);
+  };
   let p95: number | null = null;
   for (const point of metrics10s) {
     if (point.ts < nowMs - REPLICA_SIGNAL_WINDOW_MS || !nodeIds.has(point.nodeId)) continue;
-    psi.push(Math.max(point.cpuPsi10, point.memPsi10));
+    push(psiByNode, point.nodeId, Math.max(point.cpuPsi10, point.memPsi10));
     for (const container of point.containers) {
       if (!placementIds.has(container.placementId)) continue;
       const normalizedCpu = service.cpuLimitMilli > 0 ? (container.cpuPct * 1000) / service.cpuLimitMilli : container.cpuPct;
-      cpu.push(normalizedCpu);
-      if (container.memLimitMiB > 0) mem.push(container.memUsedMiB / container.memLimitMiB);
+      push(cpuByPlacement, container.placementId, normalizedCpu);
+      if (container.memLimitMiB > 0) push(memByPlacement, container.placementId, container.memUsedMiB / container.memLimitMiB);
     }
     const edge = point.edge?.services.find((entry) => entry.serviceName === service.name);
     if (edge !== undefined && edge.requests > 0) p95 = Math.max(p95 ?? 0, edge.p95Ms);
   }
-  if (cpu.length === 0) return null;
-  return { cpuPct: average(cpu), memRatio: average(mem), psi: average(psi), p95Ms: p95 };
+  if (cpuByPlacement.size === 0) return null;
+  return {
+    cpuPct: average([...cpuByPlacement.values()].map(average)),
+    memRatio: average([...memByPlacement.values()].map(average)),
+    psi: average([...psiByNode.values()].map(average)),
+    p95Ms: p95,
+    readyReplicas: placementIds.size,
+    sampledReplicas: cpuByPlacement.size,
+  };
 }
 
 function evaluateReplicas(input: AutoscaleInput, regionLabels: Set<string>, cooldowns: Map<string, number>): AutoscaleAction[] {
@@ -222,7 +244,7 @@ function evaluateReplicas(input: AutoscaleInput, regionLabels: Set<string>, cool
       const cpuHot = spec.targetCpuPct > 0 && signals.cpuPct > spec.targetCpuPct;
       const p95Hot = spec.targetP95Ms > 0 && signals.p95Ms !== null && signals.p95Ms > spec.targetP95Ms;
       const memHot = signals.memRatio > HOT_MEM_RATIO;
-      const psiHot = signals.psi > HOT_PSI;
+      const psiHot = signals.psi > HOT_PSI && (spec.targetCpuPct <= 0 || signals.cpuPct > spec.targetCpuPct * 0.5);
       if (cpuHot || p95Hot || memHot || psiHot) {
         if (current < max && cooled(cooldowns, upKey, input.nowMs, upMs)) {
           const byCpu = cpuHot ? Math.ceil((current * signals.cpuPct) / spec.targetCpuPct) : current + 1;
@@ -234,12 +256,14 @@ function evaluateReplicas(input: AutoscaleInput, regionLabels: Set<string>, cool
         }
         continue;
       }
+      const projectedScale = current > 1 ? current / (current - 1) : 1;
       const cold =
-        (spec.targetCpuPct <= 0 || signals.cpuPct < spec.targetCpuPct * 0.5) &&
-        signals.memRatio < 0.5 &&
-        signals.psi < 5 &&
+        (spec.targetCpuPct <= 0 || signals.cpuPct * projectedScale < spec.targetCpuPct * 0.4) &&
+        signals.memRatio * projectedScale < 0.5 &&
+        (spec.targetCpuPct > 0 || signals.psi < HOT_PSI * 0.6) &&
         (signals.p95Ms === null || spec.targetP95Ms <= 0 || signals.p95Ms < spec.targetP95Ms * 0.5);
-      if (cold && current > min && cooled(cooldowns, lastKey, input.nowMs, downMs)) emit(current - 1, "low_utilization");
+      const covered = signals.readyReplicas >= current && signals.sampledReplicas === signals.readyReplicas;
+      if (cold && covered && current > min && cooled(cooldowns, lastKey, input.nowMs, downMs)) emit(current - 1, "low_utilization");
     }
   }
   return actions;

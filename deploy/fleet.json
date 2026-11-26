@@ -110,7 +110,7 @@
         },
         "worker": {
           "min": 0,
-          "max": 50,
+          "max": 0,
           "shape": {
             "name": "VM.Standard.A1.Flex",
             "ocpus": 2,
@@ -157,7 +157,7 @@
         },
         "worker": {
           "min": 0,
-          "max": 50,
+          "max": 0,
           "shape": {
             "name": "VM.Standard.A1.Flex",
             "ocpus": 2,
@@ -205,7 +205,7 @@
         },
         "worker": {
           "min": 0,
-          "max": 50,
+          "max": 0,
           "shape": {
             "name": "VM.Standard.A1.Flex",
             "ocpus": 2,
