@@ -14,7 +14,7 @@ import type {
   RolloutInfo,
   ServiceSpec,
 } from "./protocol";
-import { rolloutSequence, rolloutStages, stageProgress } from "./rollout";
+import { regionRunsTarget, rolloutSequence } from "./rollout";
 
 export interface ScheduleInput {
   regions: RegionConfig[];
@@ -163,13 +163,8 @@ function imageForNewPlacement(service: ServiceSpec, region: string, input: Sched
   for (const rollout of input.rollouts ?? []) {
     if (rollout.serviceName !== service.name || TERMINAL_ROLLOUT.has(rollout.phase) || rollout.phase === "pending") continue;
     const sequence = rolloutSequence(rollout, service, order);
-    const regionStage = rolloutStages(sequence).findIndex((stage) => stage.includes(region));
-    if (regionStage < 0) continue;
-    const progress = stageProgress(rollout, sequence);
-    if (regionStage < progress.stage) return rollout.targetImage;
-    if (regionStage > progress.stage) return rollout.previousImage ?? service.image;
-    const phase = progress.regions.find((entry) => entry.region === region)?.phase;
-    return phase === "waves" || phase === "succeeded" ? rollout.targetImage : rollout.previousImage ?? service.image;
+    if (!sequence.includes(region)) continue;
+    return regionRunsTarget(rollout, sequence, region) ? rollout.targetImage : rollout.previousImage ?? service.image;
   }
   return service.image;
 }

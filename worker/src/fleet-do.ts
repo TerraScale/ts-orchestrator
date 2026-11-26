@@ -1083,6 +1083,7 @@ export class FleetDO extends DurableObject<Env> {
       currentWave?: number;
       totalWaves?: number;
       waveStartedAt?: number;
+      regionOrder?: string[];
       activeRegions?: string[];
       regionProgress?: RolloutRegionProgress[];
     }>(row.wave_json, {});
@@ -1104,6 +1105,7 @@ export class FleetDO extends DurableObject<Env> {
     if (row.canary_started_at !== null) rollout.canaryStartedAt = row.canary_started_at;
     if (row.finished_at !== null) rollout.finishedAt = row.finished_at;
     if (row.error !== null) rollout.error = row.error;
+    if (Array.isArray(wave.regionOrder)) rollout.regionOrder = wave.regionOrder;
     if (Array.isArray(wave.activeRegions)) rollout.activeRegions = wave.activeRegions;
     if (Array.isArray(wave.regionProgress)) rollout.regionProgress = wave.regionProgress;
     return rollout;
@@ -1137,6 +1139,7 @@ export class FleetDO extends DurableObject<Env> {
         currentWave: rollout.currentWave,
         totalWaves: rollout.totalWaves,
         waveStartedAt: rollout.waveStartedAt,
+        regionOrder: rollout.regionOrder,
         activeRegions: rollout.activeRegions,
         regionProgress: rollout.regionProgress,
       }),

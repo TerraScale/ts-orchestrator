@@ -742,7 +742,7 @@ const REGION_NAMES = { gru: "São Paulo", fra: "Frankfurt", sjc: "San Jose" };
 const WINDOWS = { "1h": 3600000, "48h": 172800000 };
 const BUCKETS = { "1h": 20000, "48h": 900000 };
 const REFRESH_MS = 5000;
-const BAKE_MS = 15000;
+const BAKE_MS = 30000;
 const DATA_MOUNT = "/var/lib/ts-data";
 const ACTIVE_PHASES = new Set(["pending", "canary", "baking", "waves"]);
 const EVENT_GROUPS = [
@@ -1513,7 +1513,7 @@ const rolloutCard = (r, active) => {
   const svc = (state.status?.services ?? []).find((s) => s.name === r.serviceName);
   const order = REGION_ORDER.filter((x) => !svc || (svc.regions ?? []).includes(x) || x === r.currentRegion);
   const extra = (svc?.regions ?? []).filter((x) => !order.includes(x));
-  const waves = [...order, ...extra].filter((x) => !r.region || x === r.region);
+  const waves = r.regionOrder?.length ? r.regionOrder : [...order, ...extra].filter((x) => !r.region || x === r.region);
   const progress = new Map((r.regionProgress ?? []).map((p) => [p.region, p]));
   const staged = Array.isArray(r.regionProgress);
   const curIdx = r.currentRegion ? waves.indexOf(r.currentRegion) : -1;
@@ -1521,14 +1521,12 @@ const rolloutCard = (r, active) => {
   const regionPhase = (w, i) => {
     if (finished) return "succeeded";
     if (!staged) return curIdx >= 0 && i < curIdx ? "succeeded" : i === curIdx ? r.phase : "queued";
-    const stage = i === 0 ? 0 : 1;
-    if (stage < (r.currentWave ?? 0)) return "succeeded";
     return progress.get(w)?.phase ?? "queued";
   };
   const waveHtml = waves.map((w, i) => {
     const phase = regionPhase(w, i);
     const cls = phase === "succeeded" ? "done" : active && ACTIVE_PHASES.has(phase) ? "active" : "";
-    const label = cls === "done" ? "done" : cls === "active" ? (phase === "canary" || phase === "baking" ? "canary" : "rolling") : "queued";
+    const label = cls === "done" ? "done" : cls === "active" ? (phase === "canary" || phase === "baking" ? "canary" : "rolling") : phase === "skipped" ? "skipped" : "queued";
     return '<div class="wave ' + cls + '"><div class="wbar"></div><div class="wl"><b>' + esc(w) + "</b><span>" + esc(label) + "</span></div></div>";
   }).join("");
   const canaries = staged
@@ -1543,8 +1541,8 @@ const rolloutCard = (r, active) => {
   let cmp = "";
   if (num(r.baselineP95Ms) || num(r.baseline5xxPct)) {
     const tops = topByNode();
-    const live = new Set(r.activeRegions?.length ? r.activeRegions : r.currentRegion ? [r.currentRegion] : []);
-    const snaps = (state.status?.nodes ?? []).filter((n) => !live.size || live.has(n.region)).map((n) => tops.get(n.id)?.edge).filter(Boolean);
+    const liveRegions = new Set(r.activeRegions?.length ? r.activeRegions : r.currentRegion ? [r.currentRegion] : []);
+    const snaps = (state.status?.nodes ?? []).filter((n) => !liveRegions.size || liveRegions.has(n.region)).map((n) => tops.get(n.id)?.edge).filter(Boolean);
     const live = edgeAgg(snaps, r.serviceName);
     const badP95 = num(live.p95) && num(r.baselineP95Ms) && live.p95 > r.baselineP95Ms * 1.5;
     const bad5xx = num(live.err) && num(r.baseline5xxPct) && live.err > Math.max(r.baseline5xxPct * 2, r.baseline5xxPct + 1);

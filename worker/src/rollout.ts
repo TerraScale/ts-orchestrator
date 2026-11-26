@@ -5,6 +5,7 @@ import type {
   PlacementInfo,
   RolloutInfo,
   RolloutPhase,
+  RolloutRegionPhase,
   RolloutRegionProgress,
   ServiceSpec,
 } from "./protocol";
@@ -39,7 +40,7 @@ export interface CanaryBreach {
 }
 
 export const DEFAULT_CANARY_BAKE_MS = 15_000;
-export const MAX_CANARY_BAKE_MS = 15_000;
+export const MAX_CANARY_BAKE_MS = 30_000;
 export const WAVE_FRACTION = 0.25;
 export const CANARY_READY_GRACE_MS = 120_000;
 const MAX_WAVE_READY_MS = 30 * 60_000;
@@ -48,6 +49,27 @@ export const MIN_CANARY_REQUESTS = 20;
 type RolloutEvent = RolloutStep["events"][number];
 
 const TERMINAL: ReadonlySet<RolloutPhase> = new Set(["succeeded", "rolled_back", "failed"]);
+
+type ActiveRegionPhase = "canary" | "baking" | "waves";
+
+function activeRegionPhase(phase: RolloutRegionPhase | RolloutPhase): ActiveRegionPhase | undefined {
+  switch (phase) {
+    case "canary":
+    case "baking":
+    case "waves":
+      return phase;
+    case "pending":
+    case "succeeded":
+    case "skipped":
+    case "rolled_back":
+    case "failed":
+      return undefined;
+  }
+}
+
+function regionDone(entry: RolloutRegionProgress | undefined): boolean {
+  return entry !== undefined && activeRegionPhase(entry.phase) === undefined;
+}
 
 function event(kind: EventKind, subject: string, detail: Record<string, unknown>, region?: string): RolloutEvent {
   return region === undefined ? { kind, subject, detail } : { kind, region, subject, detail };
@@ -65,6 +87,7 @@ export function orderRegions(regions: string[], rolloutOrder: string[]): string[
 }
 
 export function rolloutSequence(rollout: RolloutInfo, service: ServiceSpec, rolloutOrder: string[]): string[] {
+  if (rollout.regionOrder !== undefined) return rollout.regionOrder;
   return orderRegions(rollout.region !== undefined ? [rollout.region] : service.regions, rolloutOrder);
 }
 
@@ -76,7 +99,7 @@ export function rolloutStages(sequence: string[]): string[][] {
 
 function progressEntry(
   region: string,
-  phase: RolloutPhase,
+  phase: RolloutRegionPhase,
   canaryStartedAt: number | undefined,
   waveStartedAt: number | undefined,
 ): RolloutRegionProgress {
@@ -92,17 +115,21 @@ export interface StageProgress {
 }
 
 export function stageProgress(rollout: RolloutInfo, sequence: string[]): StageProgress {
-  if (rollout.regionProgress !== undefined) {
-    const scope = rolloutStages(sequence)[rollout.currentWave] ?? [];
-    return { stage: rollout.currentWave, regions: rollout.regionProgress.filter((entry) => scope.includes(entry.region)) };
-  }
+  if (rollout.regionProgress !== undefined) return { stage: rollout.currentWave, regions: rollout.regionProgress };
   const current = rollout.currentRegion;
-  const index = current === undefined || rollout.phase === "pending" ? -1 : sequence.indexOf(current);
-  if (current === undefined || index < 0) return { stage: 0, regions: [] };
-  const active = progressEntry(current, rollout.phase, rollout.canaryStartedAt, rollout.waveStartedAt);
+  const phase = activeRegionPhase(rollout.phase);
+  const index = current === undefined || phase === undefined ? -1 : sequence.indexOf(current);
+  if (current === undefined || phase === undefined || index < 0) return { stage: 0, regions: [] };
+  const active = progressEntry(current, phase, rollout.canaryStartedAt, rollout.waveStartedAt);
   if (index === 0) return { stage: 0, regions: [active] };
-  const completed = sequence.slice(1, index).map((region) => progressEntry(region, "succeeded", undefined, undefined));
+  const completed = sequence.slice(0, index).map((region) => progressEntry(region, "succeeded", undefined, undefined));
   return { stage: 1, regions: [...completed, active] };
+}
+
+export function regionRunsTarget(rollout: RolloutInfo, sequence: string[], region: string): boolean {
+  const { regions } = stageProgress(rollout, sequence);
+  const phase = regions.find((entry) => entry.region === region)?.phase;
+  return phase === "waves" || phase === "succeeded";
 }
 
 export function bakingStartTimes(rollout: RolloutInfo): number[] {
@@ -164,6 +191,7 @@ export function createRollout(
     baselineP95Ms,
     baseline5xxPct,
     startedAt: nowMs,
+    regionOrder: ordered,
     activeRegions: stages[0] ?? [],
     regionProgress: [],
   };
@@ -173,14 +201,10 @@ export function createRollout(
   return rollout;
 }
 
-const REGION_PHASE_RANK: Readonly<Record<RolloutPhase, number>> = {
-  pending: 0,
+const ACTIVE_REGION_RANK: Readonly<Record<ActiveRegionPhase, number>> = {
   canary: 0,
   baking: 1,
   waves: 2,
-  succeeded: 3,
-  rolled_back: 3,
-  failed: 3,
 };
 
 class Stepper {
@@ -226,7 +250,7 @@ class Stepper {
     const placements = this.regionPlacements(region);
     const canary = placements.find((p) => p.desiredImage !== this.state.targetImage) ?? placements[0];
     if (canary === undefined) {
-      this.progress.set(region, progressEntry(region, "succeeded", undefined, undefined));
+      this.progress.set(region, progressEntry(region, "skipped", undefined, undefined));
       return;
     }
     this.setImage(canary, this.state.targetImage);
@@ -303,25 +327,24 @@ class Stepper {
       for (const region of scope) {
         const entry = this.progress.get(region);
         if (entry === undefined) this.startRegion(region);
-        else if (entry.phase !== "succeeded") this.stepRegion(entry);
+        else if (!regionDone(entry)) this.stepRegion(entry);
         if (this.finished()) return;
       }
-      if (!scope.every((region) => this.progress.get(region)?.phase === "succeeded")) return;
+      if (!scope.every((region) => regionDone(this.progress.get(region)))) return;
       if (this.stage + 1 >= this.stages.length) {
         this.succeed();
         return;
       }
       this.stage += 1;
-      this.progress = new Map();
     }
   }
 
   publish(): void {
-    const scope = this.stages[this.stage] ?? [];
-    const entries = scope.flatMap((region) => {
+    const entries = this.sequence.flatMap((region) => {
       const entry = this.progress.get(region);
       return entry === undefined ? [] : [progressEntry(region, entry.phase, entry.canaryStartedAt, entry.waveStartedAt)];
     });
+    this.state.regionOrder = this.sequence;
     this.state.currentWave = this.state.phase === "succeeded" ? this.stages.length : this.stage;
     this.state.totalWaves = this.stages.length;
     this.state.regionProgress = entries;
@@ -330,19 +353,22 @@ class Stepper {
       delete this.state.waveStartedAt;
       return;
     }
-    const active = entries.filter((entry) => entry.phase !== "succeeded");
-    this.state.activeRegions = active.map((entry) => entry.region);
-    const lead = active.reduce<RolloutRegionProgress | undefined>(
-      (best, entry) => (best === undefined || REGION_PHASE_RANK[entry.phase] < REGION_PHASE_RANK[best.phase] ? entry : best),
+    const active = entries.flatMap((entry) => {
+      const phase = activeRegionPhase(entry.phase);
+      return phase === undefined ? [] : [{ entry, phase }];
+    });
+    this.state.activeRegions = active.map(({ entry }) => entry.region);
+    const lead = active.reduce<(typeof active)[number] | undefined>(
+      (best, item) => (best === undefined || ACTIVE_REGION_RANK[item.phase] < ACTIVE_REGION_RANK[best.phase] ? item : best),
       undefined,
     );
     if (lead === undefined) return;
     this.state.phase = lead.phase;
-    this.state.currentRegion = lead.region;
-    if (lead.canaryStartedAt === undefined) delete this.state.canaryStartedAt;
-    else this.state.canaryStartedAt = lead.canaryStartedAt;
-    if (lead.waveStartedAt === undefined) delete this.state.waveStartedAt;
-    else this.state.waveStartedAt = lead.waveStartedAt;
+    this.state.currentRegion = lead.entry.region;
+    if (lead.entry.canaryStartedAt === undefined) delete this.state.canaryStartedAt;
+    else this.state.canaryStartedAt = lead.entry.canaryStartedAt;
+    if (lead.entry.waveStartedAt === undefined) delete this.state.waveStartedAt;
+    else this.state.waveStartedAt = lead.entry.waveStartedAt;
   }
 
   stepRegion(entry: RolloutRegionProgress): void {
