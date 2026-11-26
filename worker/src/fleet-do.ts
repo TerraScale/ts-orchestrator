@@ -38,6 +38,7 @@ import {
   VOLUME_MAX_GIB,
   VOLUME_USAGE_THRESHOLD_PCT,
   volumeGrowCooldownKey,
+  volumeReachedTarget,
   type AutoscaleAction,
 } from "./autoscaler";
 import type { Env } from "./env";
@@ -2044,22 +2045,26 @@ export class FleetDO extends DurableObject<Env> {
   }
 
   private onVolumeGrown(attachment: Attachment, volumePath: string, newSizeGiB: number): void {
+    if (typeof newSizeGiB !== "number" || !Number.isFinite(newSizeGiB) || newSizeGiB <= 0) return;
     const row = this.loadNodeRow(attachment.nodeId);
     if (row === undefined) return;
     const volumes = parseJson<VolumeInfo[]>(row.volumes_json, []);
+    let grew = false;
     for (const volume of volumes) {
-      if (volume.mountPath === volumePath) volume.sizeGiB = finite(newSizeGiB, volume.sizeGiB);
+      if (volume.mountPath !== volumePath || newSizeGiB <= volume.sizeGiB) continue;
+      volume.sizeGiB = newSizeGiB;
+      grew = true;
     }
-    this.sql.exec("UPDATE nodes SET volumes_json = ? WHERE id = ?", JSON.stringify(volumes), attachment.nodeId);
-    const pending = this.getState<{ mountPath?: string; newSizeGiB?: number; at?: number; lastSentAt?: number }>(
+    if (grew) this.sql.exec("UPDATE nodes SET volumes_json = ? WHERE id = ?", JSON.stringify(volumes), attachment.nodeId);
+    const pending = this.getState<{ mountPath?: string; newSizeGiB?: number; previousSizeGiB?: number; at?: number; lastSentAt?: number }>(
       `volume_grow:${attachment.nodeId}`,
     );
     const expected = pending !== null && typeof pending.mountPath === "string" && pending.mountPath.length > 0 ? pending.mountPath : DATA_VOLUME_PATH;
     const targetGiB = typeof pending?.newSizeGiB === "number" ? pending.newSizeGiB : 0;
-    if (pending !== null && volumePath === expected && (targetGiB <= 0 || newSizeGiB >= targetGiB - 2)) {
-      this.deleteState(`volume_grow:${attachment.nodeId}`);
-    }
-    this.recordEvent("volume_grown", attachment.nodeId, { volumePath, newSizeGiB }, attachment.region);
+    const previousSizeGiB = typeof pending?.previousSizeGiB === "number" ? pending.previousSizeGiB : 0;
+    const cleared = pending !== null && volumePath === expected && volumeReachedTarget(newSizeGiB, targetGiB, previousSizeGiB);
+    if (cleared) this.deleteState(`volume_grow:${attachment.nodeId}`);
+    if (grew || cleared) this.recordEvent("volume_grown", attachment.nodeId, { volumePath, newSizeGiB }, attachment.region);
   }
 
   private replayVolumeGrow(nodeId: string): void {
@@ -3083,9 +3088,14 @@ export class FleetDO extends DurableObject<Env> {
         this.setState(budget, requestedAt);
         await oci.updateVolumeSize(action.ociRegion, volume.id, newSizeGiB, volume.etag);
         if (this.loadNodeRow(action.nodeId)?.token_hash !== row.token_hash) return false;
+        const previousSizeGiB = finite(
+          parseJson<VolumeInfo[]>(current.volumes_json, []).find((info) => info.mountPath === DATA_VOLUME_PATH)?.sizeGiB,
+          0,
+        );
         this.setState(`volume_grow:${action.nodeId}`, {
           at: now,
           lastSentAt: now,
+          previousSizeGiB,
           newSizeGiB,
           reason: action.reason,
           mountPath: DATA_VOLUME_PATH,

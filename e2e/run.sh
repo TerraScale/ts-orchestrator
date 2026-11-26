@@ -266,8 +266,13 @@ async function fakeNode(url, secret, instanceId, poolKind, logFile, tlsDir) {
   const desired = new Map();
   const hash = (value) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
   const hostPort = (placementId) => 30000 + (parseInt(hash(placementId).slice(0, 4), 16) % 20000);
-  const socket = new WebSocket(`${wsUrl}?nodeId=${encodeURIComponent(nodeId)}`, { headers: { Authorization: `Bearer ${token}` } });
-  const send = (message) => socket.send(JSON.stringify(message));
+  let socket;
+  let connection = 0;
+  let reconnect = false;
+  let dataVolumeGiB = 50;
+  const send = (message) => {
+    if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
+  };
   const reports = () =>
     [...desired.values()].map((placement) => ({
       placementId: placement.placementId,
@@ -295,8 +300,9 @@ async function fakeNode(url, secret, instanceId, poolKind, logFile, tlsDir) {
       },
     });
   };
-  socket.addEventListener("open", () => {
-    record({ type: "connected" });
+  const onOpen = () => {
+    connection += 1;
+    record({ type: "connected", connection });
     send({
       type: "hello",
       nodeId,
@@ -310,16 +316,19 @@ async function fakeNode(url, secret, instanceId, poolKind, logFile, tlsDir) {
       memTotalMiB: 16384,
       diskTotalGiB: 100,
       labels: { "oci.instance-id": "agent-fixture", "oci.data-volume-id": "agent-fixture", "oci.stateful-index": "9", source: "e2e" },
-      volumes: poolKind === "stateful" ? [{ mountPath: "/var/lib/ts-data", device: "/dev/oracleoci/oraclevdb", sizeGiB: 50, usedPct: 10 }] : [],
+      volumes: poolKind === "stateful" ? [{ mountPath: "/var/lib/ts-data", device: "/dev/oracleoci/oraclevdb", sizeGiB: dataVolumeGiB, usedPct: 10 }] : [],
       agentVersion: "e2e-simulated",
     });
+    if (connection > 1) return;
     if (poolKind === "worker") heartbeat(92, "é".repeat(32_768));
     heartbeat();
     if (poolKind === "worker") heartbeat(91);
     setInterval(heartbeat, 3000);
-    setInterval(() => socket.send("ping"), 15000);
-  });
-  socket.addEventListener("message", (event) => {
+    setInterval(() => {
+      if (socket.readyState === WebSocket.OPEN) socket.send("ping");
+    }, 15000);
+  };
+  const onMessage = (event) => {
     if (typeof event.data !== "string" || event.data === "pong") return;
     const message = JSON.parse(event.data);
     switch (message.type) {
@@ -336,7 +345,7 @@ async function fakeNode(url, secret, instanceId, poolKind, logFile, tlsDir) {
           writeAtomic(join(tlsDir, "key.pem"), message.keyPem);
           writeAtomic(join(tlsDir, "cert.pem"), message.certPem);
         }
-        record({ type: message.type, domains: message.domains, notAfter: message.notAfter });
+        record({ type: message.type, connection, domains: message.domains, notAfter: message.notAfter });
         break;
       case "drain":
         record({ type: message.type, reason: message.reason });
@@ -344,10 +353,17 @@ async function fakeNode(url, secret, instanceId, poolKind, logFile, tlsDir) {
         heartbeat();
         send({ type: "drain_complete", nodeId });
         break;
-      case "grow_volume":
-        record({ type: message.type, mountPath: message.mountPath });
-        send({ type: "volume_grown", nodeId, volumePath: message.mountPath, newSizeGiB: 100 });
+      case "grow_volume": {
+        record({ type: message.type, connection, mountPath: message.mountPath });
+        const firstGrow = dataVolumeGiB !== 97;
+        dataVolumeGiB = 97;
+        send({ type: "volume_grown", nodeId, volumePath: message.mountPath, newSizeGiB: dataVolumeGiB });
+        if (!firstGrow) break;
+        send({ type: "volume_grown", nodeId, volumePath: message.mountPath, newSizeGiB: dataVolumeGiB });
+        reconnect = true;
+        socket.close(1000, "e2e reconnect after volume grow");
         break;
+      }
       case "exec_command":
         record({ type: message.type, containerName: message.containerName, command: message.command });
         send({ type: "exec_result", requestId: message.requestId, exitCode: 0, stdout: `simulated:${message.command.join(" ")}\n`, stderr: "" });
@@ -359,12 +375,20 @@ async function fakeNode(url, secret, instanceId, poolKind, logFile, tlsDir) {
       default:
         record({ type: message.type, message });
     }
-  });
-  socket.addEventListener("close", (event) => {
-    record({ type: "closed", code: event.code, reason: event.reason });
-    process.exit(0);
-  });
-  socket.addEventListener("error", () => record({ type: "socket_error" }));
+  };
+  const connect = () => {
+    socket = new WebSocket(`${wsUrl}?nodeId=${encodeURIComponent(nodeId)}`, { headers: { Authorization: `Bearer ${token}` } });
+    socket.addEventListener("open", onOpen);
+    socket.addEventListener("message", onMessage);
+    socket.addEventListener("close", (event) => {
+      record({ type: "closed", connection, code: event.code, reason: event.reason });
+      if (!reconnect) process.exit(0);
+      reconnect = false;
+      connect();
+    });
+    socket.addEventListener("error", () => record({ type: "socket_error" }));
+  };
+  connect();
 }
 
 switch (command) {
@@ -547,8 +571,6 @@ api GET '/api/metrics?node=e2e-w1' | jq -e \
   >/dev/null || die "rapid or oversized heartbeats affected the 10-second metrics"
 service_ready() { api GET /api/status | jq -e --arg name "$1" --argjson want "$2" '.services[] | select(.name == $name) | .ready >= $want' >/dev/null; }
 wait_for "e2e-web 2/2 ready on simulated nodes" 90 service_ready e2e-web 2
-chaos "$(jq -cn --arg id "$STATEFUL_NODE" '{kind: "fill_disk", nodeId: $id, usedPct: 90}')" >/dev/null
-ok "fill_disk injected on $STATEFUL_NODE (volume grow verified later)"
 
 log "4a. Shared TLS via /api/tls/ensure -> sync_tls"
 api POST /api/tls/ensure --data '{}' | tee "$LOGS/tls-ensure.json" | jq -e '.domains | length > 0' >/dev/null
@@ -556,6 +578,10 @@ api POST /api/tls/ensure --data '{}' | tee "$LOGS/tls-ensure.json" | jq -e '.dom
 grep -q "localhost" "$LOGS/tls-status.txt" || die "ts-orch tls status did not list domains"
 wait_for "sync_tls delivered cert.pem to the edge runtime dir" 60 test -s "$WORK/edge-run/tls/cert.pem"
 openssl x509 -in "$WORK/edge-run/tls/cert.pem" -noout -checkend 86400 >/dev/null || die "shared TLS certificate expires within a day"
+initial_tls() { jq -se 'any(.[]; .type == "sync_tls" and .connection == 1)' "$WORK/fake-s1.jsonl" >/dev/null; }
+wait_for "$STATEFUL_NODE received initial sync_tls on its first connection" 60 initial_tls
+chaos "$(jq -cn --arg id "$STATEFUL_NODE" '{kind: "fill_disk", nodeId: $id, usedPct: 90}')" >/dev/null
+ok "fill_disk injected on $STATEFUL_NODE (volume grow verified later)"
 
 log "2b. ts-orch secrets check and MCP over stdio"
 "${TS[@]}" secrets check -f "$WORK/services" > "$LOGS/secrets-check.txt" 2>&1 || die "ts-orch secrets check failed"
@@ -716,6 +742,19 @@ volume_grown() { curl -sf "$OCI/_mock/state" | jq -e --arg id "$VOLUME_ID" '.vol
 wait_for "oci-mock recorded UpdateVolume(100 GB) for $VOLUME_ID" 60 volume_grown
 grow_seen() { grep -q '"type":"grow_volume"' "$WORK/fake-s1.jsonl"; }
 wait_for "$STATEFUL_NODE received grow_volume" 60 grow_seen
+grown_event() {
+  api GET /api/events | jq -e --arg node "$STATEFUL_NODE" \
+    'any(.events[]; .kind == "volume_grown" and .subject == $node and .detail.newSizeGiB == "97")' >/dev/null
+}
+wait_for "volume_grown recorded for $STATEFUL_NODE at 97 GiB usable ext4" 60 grown_event
+resynced() { jq -se 'any(.[]; .type == "sync_tls" and .connection == 2)' "$WORK/fake-s1.jsonl" >/dev/null; }
+wait_for "$STATEFUL_NODE reconnected after a duplicate 97 GiB volume_grown and received sync_tls" 60 resynced
+jq -se '[.[] | select(.type == "grow_volume")] | length == 1' "$WORK/fake-s1.jsonl" >/dev/null ||
+  die "grow_volume was replayed on reconnect after a 97 GiB ext4 report for a 100 GiB target"
+api GET /api/events | jq -e --arg node "$STATEFUL_NODE" \
+  '[.events[] | select(.kind == "volume_grown" and .subject == $node)] | length == 1' >/dev/null ||
+  die "duplicate volume_grown(97) was recorded more than once for $STATEFUL_NODE"
+ok "volume grow cleared within ext4 overhead tolerance and survived a duplicate report and reconnect"
 
 log "5f. Node drain"
 "${TS[@]}" node drain e2e-w1 > "$LOGS/drain-fake.txt"

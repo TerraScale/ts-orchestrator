@@ -115,8 +115,8 @@ variable "worker_max" {
   default     = 50
 
   validation {
-    condition     = var.worker_max >= 1 && var.worker_max <= 50
-    error_message = "worker_max must be between 1 and 50."
+    condition     = var.worker_max >= 0 && var.worker_max <= 50
+    error_message = "worker_max must be between 0 and 50."
   }
 }
 
