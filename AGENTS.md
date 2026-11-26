@@ -11,7 +11,7 @@
 
 - Ship every change as a pull request to `main`. Fetch `origin` first and branch from fresh `origin/main` in your own worktree or clone, outside shared checkouts. Commit small changes; no AI attribution. Ignore outside contributors' PRs unless asked.
 - Record non-obvious choices in the commit message as `DECISION: <choice>. Reason: <why>`.
-- Before pushing, build or type-check only the project you changed. GitHub CI on the PR is the gate. A PR squash-merges as soon as its checks are green and its review passed; rebase it when it conflicts. Never push directly to, force-push or delete `main`.
+- Before pushing, build or type-check only the project you changed, and run the pre-PR council review before opening the PR. GitHub CI on the PR is the gate. A PR squash-merges as soon as its checks are green and its review passed; rebase it when it conflicts. Never push directly to, force-push or delete `main`.
 - Deploy only green `main`. If your merge makes `main` red, fix or revert within about 30 minutes. For a red `main` you did not cause, wait for its owner's fix and rebase.
 - Never run anything on or SSH to `mariogk-desktop`.
 - `StorageFormat.cs` bumps and production resets need the user's approval; otherwise put `Needs format bump` in the commit message.
@@ -21,7 +21,7 @@
 - **No comments:** no `//`, `#`, `/* */`, `///` doc comments or commented-out code in code, scripts or build files, including code you move or rewrite. Names and types carry the meaning; non-obvious choices go in the commit message as `DECISION:`.
 - **Fix the root cause:** no workarounds — no retries, sleeps, longer timeouts, swallowed errors, special cases, flags or skipped or weakened journey steps that hide a symptom. If the cause is outside your task or outside our code, report it instead of patching around it.
 - **No legacy:** no deprecated paths, compatibility shims, fallbacks, old-format readers, dead code or copies kept "for now". Replace the old path and delete it in the same change.
-- **No tests but the journey:** the only test is the user-journey E2E suite in `terrascale` (runs on every `terrascale` PR against a throwaway environment and after every release against production). Never add unit, integration, contract, Fast or Slow tests, test projects, fakes or fixtures in any repo; delete any you find. A behaviour that matters becomes a journey step. Never skip, weaken or retry a journey test; the only allowed way to stop a flaky test from blocking PRs is quarantine (see `terrascale/e2e/AGENTS.md` "Quarantine": an open issue titled `Flaky journey test: <test>` with label `journey-quarantine` skips it on PRs while `main` still runs and reports it; closing the issue after the real fix ends quarantine). Production monitors (`ts-orchestrator` `multi-region`, `deploy-lag`, `app-canary`) are not tests; keep them. `ts-orchestrator` also keeps its single-host E2E (job `e2e-m1`) as its PR gate.
+- **No tests but the journey:** the only test is the user-journey E2E suite in `terrascale` (runs on every `terrascale` PR against a throwaway environment and after every release against production). Never add unit, integration, contract, Fast or Slow tests, test projects, fakes or fixtures in any repo; delete any you find. A behaviour that matters becomes a journey step. Never skip, weaken or retry a journey test; the only allowed way to stop a flaky test from blocking PRs is quarantine (see `terrascale/e2e/AGENTS.md` "Quarantine": an open issue titled `Flaky journey test: <test>` with label `journey-quarantine` skips it on PRs while `main` still runs and reports it; closing the issue after the real fix ends quarantine). Production monitors (`ts-orchestrator` `multi-region`, `deploy-lag`, `app-canary`) are not tests; keep them. `ts-orchestrator` keeps its single-host E2E (`e2e/run.sh`) as a local pre-PR check, not a CI job.
 
 ### CI and proof
 
@@ -62,8 +62,10 @@ Cloudflare Worker control backplane + merged global Atlas discovery (`worker/`) 
 - `deploy/`: declarative production inventory (`fleet.json`, `services/*.json`), cloud-init (`cloud-init/node-boot.sh`, `docker-daemon.json`) and systemd slices/units (`systemd/`).
 - `infra/`: OpenTofu (`1.13.9`) static regional OCI foundation (`modules/region`, `modules/geodns`) driven directly by `deploy/fleet.json`.
 - Local stack: `dotnet run --project src/TsOrch.AppHost`.
-- Checks (also run in `.github/workflows/ci.yml` ending in required `all-green`):
+- PR CI is a fast build-only gate: `dotnet`, `worker` and `infra` run in parallel and feed the required `all-green`. `push: main` runs the same builds and then `release` publishes the `v2-<sha>` bundle and deploys the Worker directly, with no `e2e` job.
+- Before opening a PR, run `bash e2e/run.sh` locally and get a clean pre-PR council review.
+- Checks (the first three run in `.github/workflows/ci.yml` ending in required `all-green`):
   - .NET: `dotnet restore TsOrch.slnx --locked-mode && dotnet format whitespace TsOrch.slnx --verify-no-changes && dotnet build TsOrch.slnx -c Release --no-restore`
   - Worker: `cd worker && npx tsc --noEmit && npx wrangler deploy --dry-run --outdir /tmp/ts-orch-dist`
-  - Infra & scripts: `tofu -chdir=infra fmt -check -recursive && tofu -chdir=infra init -backend=false -input=false -lockfile=readonly && tofu -chdir=infra validate && shellcheck -S warning deploy/cloud-init/node-boot.sh e2e/run.sh && systemd-analyze verify deploy/systemd/*.slice deploy/systemd/*.service`
-  - E2E: `bash e2e/run.sh` (CI job `e2e`); product behaviour is proven by the journey E2E in `terrascale`.
+  - Infra & scripts: `tofu -chdir=infra fmt -check -recursive && tofu -chdir=infra init -backend=false -input=false -lockfile=readonly && tofu -chdir=infra validate && shellcheck -S warning deploy/cloud-init/node-boot.sh deploy/systemd/prepare-data-volume.sh e2e/run.sh scripts/bake-image.sh && systemd-analyze verify deploy/systemd/*.slice deploy/systemd/*.service deploy/systemd/*.timer`
+  - E2E: `bash e2e/run.sh`, run locally before every PR (not in CI); product behaviour is proven by the journey E2E in `terrascale`.

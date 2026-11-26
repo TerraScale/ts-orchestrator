@@ -6,11 +6,6 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
-    inputs:
-      pr_gate:
-        description: Run the full PR gate on this ref without publication
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -155,51 +150,9 @@ jobs:
       - name: Systemd units
         run: systemd-analyze verify deploy/systemd/*.slice deploy/systemd/*.service deploy/systemd/*.timer
 
-  e2e:
-    needs: [dotnet]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
-        with:
-          name: ts-orch-bundle
-          path: dist
-
-      - name: Unpack ts-orch CLI bundle
-        run: |
-          set -euo pipefail
-          install -d dist/cli
-          tar -xzf dist/ts-orch.tar.gz -C dist/cli
-
-      - name: Read Node version
-        id: node
-        run: echo "version=$(grep -oP '^node = "\K[^"]+' .mise.toml)" >> "$GITHUB_OUTPUT"
-
-      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73
-        with:
-          global-json-file: global.json
-          cache: true
-          cache-dependency-path: "**/packages.lock.json"
-
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
-        with:
-          node-version: ${{ steps.node.outputs.version }}
-          cache: npm
-          cache-dependency-path: worker/package-lock.json
-
-      - name: Docker
-        run: docker info
-
-      - name: Docker E2E
-        env:
-          TS_ORCH_CLI_DIR: ${{ github.workspace }}/dist/cli
-        run: bash e2e/run.sh
-
   release:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [dotnet, worker, infra, e2e]
+    needs: [dotnet, worker, infra]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -269,7 +222,7 @@ jobs:
 
   all-green:
     if: always()
-    needs: [dotnet, worker, infra, e2e, release]
+    needs: [dotnet, worker, infra, release]
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:

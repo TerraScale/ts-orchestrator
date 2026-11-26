@@ -13,6 +13,7 @@ export type PlacementState =
   | "stopped"
   | "failed";
 export type RolloutPhase = "pending" | "canary" | "baking" | "waves" | "succeeded" | "rolled_back" | "failed";
+export type RolloutRegionPhase = "canary" | "baking" | "waves" | "succeeded" | "skipped";
 export type EventKind =
   | "deploy_started"
   | "canary_started"
@@ -326,6 +327,16 @@ export interface RolloutInfo {
   startedAt: number;
   finishedAt?: number;
   error?: string;
+  regionOrder?: string[];
+  activeRegions?: string[];
+  regionProgress?: RolloutRegionProgress[];
+}
+
+export interface RolloutRegionProgress {
+  region: string;
+  phase: RolloutRegionPhase;
+  canaryStartedAt?: number;
+  waveStartedAt?: number;
 }
 
 export interface EventRecord {

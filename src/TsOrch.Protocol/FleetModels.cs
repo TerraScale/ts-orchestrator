@@ -60,6 +60,15 @@ public enum RolloutPhase
     [JsonStringEnumMemberName("failed")] Failed,
 }
 
+public enum RolloutRegionPhase
+{
+    [JsonStringEnumMemberName("canary")] Canary,
+    [JsonStringEnumMemberName("baking")] Baking,
+    [JsonStringEnumMemberName("waves")] Waves,
+    [JsonStringEnumMemberName("succeeded")] Succeeded,
+    [JsonStringEnumMemberName("skipped")] Skipped,
+}
+
 [JsonConverter(typeof(EventKindJsonConverter))]
 public enum EventKind
 {
@@ -289,7 +298,16 @@ public sealed record class RolloutInfo(
     long? CanaryStartedAt = null,
     long? WaveStartedAt = null,
     long? FinishedAt = null,
-    string? Error = null);
+    string? Error = null,
+    IReadOnlyList<string>? RegionOrder = null,
+    IReadOnlyList<string>? ActiveRegions = null,
+    IReadOnlyList<RolloutRegionProgress>? RegionProgress = null);
+
+public sealed record class RolloutRegionProgress(
+    string Region,
+    RolloutRegionPhase Phase,
+    long? CanaryStartedAt = null,
+    long? WaveStartedAt = null);
 
 public sealed record class EventRecord(
     long Id,

@@ -87,6 +87,7 @@ import type {
   RollbackRequest,
   RolloutInfo,
   RolloutPhase,
+  RolloutRegionProgress,
   ServiceSpec,
   ServiceSummary,
   SshChallengeRequest,
@@ -100,6 +101,7 @@ import type {
 } from "./protocol";
 import {
   advanceRollout,
+  bakingStartTimes,
   createRollout,
   DEFAULT_CANARY_BAKE_MS,
   MAX_CANARY_BAKE_MS,
@@ -1076,7 +1078,15 @@ export class FleetDO extends DurableObject<Env> {
   }
 
   private rolloutFromRow(row: RolloutRow): RolloutInfo {
-    const wave = parseJson<{ region?: string; currentWave?: number; totalWaves?: number; waveStartedAt?: number }>(row.wave_json, {});
+    const wave = parseJson<{
+      region?: string;
+      currentWave?: number;
+      totalWaves?: number;
+      waveStartedAt?: number;
+      regionOrder?: string[];
+      activeRegions?: string[];
+      regionProgress?: RolloutRegionProgress[];
+    }>(row.wave_json, {});
     const rollout: RolloutInfo = {
       id: row.id,
       serviceName: row.service_name,
@@ -1095,6 +1105,9 @@ export class FleetDO extends DurableObject<Env> {
     if (row.canary_started_at !== null) rollout.canaryStartedAt = row.canary_started_at;
     if (row.finished_at !== null) rollout.finishedAt = row.finished_at;
     if (row.error !== null) rollout.error = row.error;
+    if (Array.isArray(wave.regionOrder)) rollout.regionOrder = wave.regionOrder;
+    if (Array.isArray(wave.activeRegions)) rollout.activeRegions = wave.activeRegions;
+    if (Array.isArray(wave.regionProgress)) rollout.regionProgress = wave.regionProgress;
     return rollout;
   }
 
@@ -1126,6 +1139,9 @@ export class FleetDO extends DurableObject<Env> {
         currentWave: rollout.currentWave,
         totalWaves: rollout.totalWaves,
         waveStartedAt: rollout.waveStartedAt,
+        regionOrder: rollout.regionOrder,
+        activeRegions: rollout.activeRegions,
+        regionProgress: rollout.regionProgress,
       }),
       rollout.baselineP95Ms ?? null,
       rollout.baseline5xxPct ?? null,
@@ -1201,10 +1217,9 @@ export class FleetDO extends DurableObject<Env> {
   private nextBakeDeadline(now: number): number | null {
     const rollouts = this.loadRollouts(true);
     let earliest: number | null = null;
-    for (const rollout of rollouts) {
-      if (rollout.phase !== "baking" || rollout.canaryStartedAt === undefined) continue;
-      const minimum = rollout.canaryStartedAt + DEFAULT_CANARY_BAKE_MS;
-      const deadline = now < minimum ? minimum : Math.max(now + 250, rollout.canaryStartedAt + MAX_CANARY_BAKE_MS);
+    for (const startedAt of rollouts.flatMap((rollout) => bakingStartTimes(rollout))) {
+      const minimum = startedAt + DEFAULT_CANARY_BAKE_MS;
+      const deadline = now < minimum ? minimum : Math.max(now + 250, startedAt + MAX_CANARY_BAKE_MS);
       if (earliest === null || deadline < earliest) earliest = deadline;
     }
     return earliest;
@@ -1790,12 +1805,7 @@ export class FleetDO extends DurableObject<Env> {
     const row = this.loadNodeRow(attachment.nodeId);
     if (row === undefined) return;
     const throttled = now - row.last_heartbeat_at < MIN_HEARTBEAT_INTERVAL_MS;
-    const rolloutPlacements = throttled
-      ? new Set(this.sql.exec<{ id: string }>(
-        "SELECT p.id FROM placements p JOIN rollouts r ON p.service_name = r.service_name AND p.region = r.current_region WHERE p.node_id = ? AND r.state IN ('canary', 'baking', 'waves')",
-        row.id,
-      ).toArray().map(({ id }) => id))
-      : null;
+    const rolloutPlacements = throttled ? this.activeRolloutPlacements(row.id) : null;
     if (rolloutPlacements?.size === 0) return;
 
     let reconcileNeeded = false;
@@ -1843,6 +1853,25 @@ export class FleetDO extends DurableObject<Env> {
       await this.publishTopology(now, false);
     }
     await this.advanceRollouts(now, edge === undefined ? undefined : { nodeId: attachment.nodeId, edge });
+  }
+
+  private activeRolloutPlacements(nodeId: string): Set<string> {
+    const regionsByService = new Map<string, Set<string>>();
+    for (const rollout of this.loadRollouts(true)) {
+      if (rollout.phase === "pending") continue;
+      const regions = regionsByService.get(rollout.serviceName) ?? new Set<string>();
+      for (const region of rollout.activeRegions ?? []) regions.add(region);
+      if (rollout.currentRegion !== undefined) regions.add(rollout.currentRegion);
+      regionsByService.set(rollout.serviceName, regions);
+    }
+    if (regionsByService.size === 0) return new Set();
+    return new Set(
+      this.sql
+        .exec<{ id: string; service_name: string; region: string }>("SELECT id, service_name, region FROM placements WHERE node_id = ?", nodeId)
+        .toArray()
+        .filter((placement) => regionsByService.get(placement.service_name)?.has(placement.region) === true)
+        .map(({ id }) => id),
+    );
   }
 
   private setVolumeUsage(nodeId: string, usedPct: number): void {

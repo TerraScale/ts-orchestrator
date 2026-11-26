@@ -27,8 +27,13 @@ internal static class RolloutStates
     public static string Describe(RolloutInfo rollout)
     {
         ArgumentNullException.ThrowIfNull(rollout);
-        var region = rollout.CurrentRegion ?? rollout.Region;
-        var location = region is null ? string.Empty : $" in {region}";
+        var location = rollout switch
+        {
+            { ActiveRegions: { Count: > 1 } regions } => $" in {string.Join(" + ", regions)}",
+            { CurrentRegion: { } current } => $" in {current}",
+            { Region: { } scoped } => $" in {scoped}",
+            _ => string.Empty,
+        };
         var failure = rollout.Error is null ? string.Empty : $": {rollout.Error}";
         return Invariant($"rollout {rollout.Id} {rollout.ServiceName} -> {rollout.TargetImage}: {rollout.Phase.WireName}, wave {rollout.CurrentWave}/{rollout.TotalWaves}{location}{failure}");
     }
