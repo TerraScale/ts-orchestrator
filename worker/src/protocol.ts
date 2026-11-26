@@ -326,6 +326,15 @@ export interface RolloutInfo {
   startedAt: number;
   finishedAt?: number;
   error?: string;
+  activeRegions?: string[];
+  regionProgress?: RolloutRegionProgress[];
+}
+
+export interface RolloutRegionProgress {
+  region: string;
+  phase: RolloutPhase;
+  canaryStartedAt?: number;
+  waveStartedAt?: number;
 }
 
 export interface EventRecord {

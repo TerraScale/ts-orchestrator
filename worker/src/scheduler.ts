@@ -14,7 +14,7 @@ import type {
   RolloutInfo,
   ServiceSpec,
 } from "./protocol";
-import { orderRegions } from "./rollout";
+import { rolloutSequence, rolloutStages, stageProgress } from "./rollout";
 
 export interface ScheduleInput {
   regions: RegionConfig[];
@@ -161,15 +161,15 @@ const TERMINAL_ROLLOUT: ReadonlySet<string> = new Set(["succeeded", "rolled_back
 function imageForNewPlacement(service: ServiceSpec, region: string, input: ScheduleInput): string {
   const order = input.rolloutOrder ?? [];
   for (const rollout of input.rollouts ?? []) {
-    if (rollout.serviceName !== service.name || TERMINAL_ROLLOUT.has(rollout.phase)) continue;
-    const current = rollout.currentRegion;
-    if (current === undefined) continue;
-    const sequence = orderRegions(rollout.region !== undefined ? [rollout.region] : service.regions, order);
-    const currentIndex = sequence.indexOf(current);
-    const regionIndex = sequence.indexOf(region);
-    if (regionIndex < 0) continue;
-    if (currentIndex >= 0 && regionIndex < currentIndex) return rollout.targetImage;
-    if (regionIndex === currentIndex && rollout.phase === "waves") return rollout.targetImage;
+    if (rollout.serviceName !== service.name || TERMINAL_ROLLOUT.has(rollout.phase) || rollout.phase === "pending") continue;
+    const sequence = rolloutSequence(rollout, service, order);
+    const regionStage = rolloutStages(sequence).findIndex((stage) => stage.includes(region));
+    if (regionStage < 0) continue;
+    const progress = stageProgress(rollout, sequence);
+    if (regionStage < progress.stage) return rollout.targetImage;
+    if (regionStage > progress.stage) return rollout.previousImage ?? service.image;
+    const phase = progress.regions.find((entry) => entry.region === region)?.phase;
+    return phase === "waves" || phase === "succeeded" ? rollout.targetImage : rollout.previousImage ?? service.image;
   }
   return service.image;
 }

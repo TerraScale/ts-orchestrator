@@ -289,7 +289,15 @@ public sealed record class RolloutInfo(
     long? CanaryStartedAt = null,
     long? WaveStartedAt = null,
     long? FinishedAt = null,
-    string? Error = null);
+    string? Error = null,
+    IReadOnlyList<string>? ActiveRegions = null,
+    IReadOnlyList<RolloutRegionProgress>? RegionProgress = null);
+
+public sealed record class RolloutRegionProgress(
+    string Region,
+    RolloutPhase Phase,
+    long? CanaryStartedAt = null,
+    long? WaveStartedAt = null);
 
 public sealed record class EventRecord(
     long Id,
