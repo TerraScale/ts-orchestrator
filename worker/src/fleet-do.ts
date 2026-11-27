@@ -2039,11 +2039,13 @@ export class FleetDO extends DurableObject<Env> {
   }
 
   private seedPendingRollups(now: number): void {
+    const since = now - METRICS_10S_RETENTION_MS;
     const currentBucket = minuteBucket(now);
     const rows = this.sql
       .exec<{ node_id: string; bucket: number }>(
-        "SELECT DISTINCT m.node_id, (m.ts / 60000) * 60000 AS bucket FROM metrics_10s m WHERE m.ts >= ? AND NOT EXISTS (SELECT 1 FROM metrics_1m r WHERE r.node_id = m.node_id AND r.ts = (m.ts / 60000) * 60000) ORDER BY bucket",
-        now - METRICS_10S_RETENTION_MS,
+        "SELECT DISTINCT m.node_id, (m.ts / 60000) * 60000 AS bucket FROM metrics_10s m WHERE m.ts >= ? AND NOT EXISTS (SELECT 1 FROM metrics_1m r WHERE r.node_id = m.node_id AND r.ts = (m.ts / 60000) * 60000) UNION SELECT node_id, (MAX(ts) / 60000) * 60000 AS bucket FROM metrics_10s WHERE ts >= ? GROUP BY node_id ORDER BY bucket",
+        since,
+        since,
       )
       .toArray();
     for (const row of rows) {
@@ -3251,17 +3253,17 @@ export class FleetDO extends DurableObject<Env> {
 
   private metricsPoints1mLive(now: number, nodeIds?: Set<string>): MetricsPoint1m[] {
     const since = now - METRICS_1M_RETENTION_MS;
-    const points = this.metricsPoints1m(since, nodeIds);
-    const seen = new Set(points.map((point) => `${point.nodeId}|${point.ts}`));
+    const byKey = new Map<string, MetricsPoint1m>();
+    for (const point of this.metricsPoints1m(since, nodeIds)) {
+      byKey.set(`${point.nodeId}|${point.ts}`, point);
+    }
     for (const [nodeId, bucket] of this.pendingRollups) {
       if (bucket < since) continue;
       if (nodeIds !== undefined && !nodeIds.has(nodeId)) continue;
-      if (seen.has(`${nodeId}|${bucket}`)) continue;
       const live = this.computeMinutePoint(nodeId, bucket);
-      if (live !== null) points.push(live);
+      if (live !== null) byKey.set(`${nodeId}|${bucket}`, live);
     }
-    points.sort((a, b) => a.ts - b.ts || (a.nodeId < b.nodeId ? -1 : a.nodeId > b.nodeId ? 1 : 0));
-    return points;
+    return [...byKey.values()].sort((a, b) => a.ts - b.ts || (a.nodeId < b.nodeId ? -1 : a.nodeId > b.nodeId ? 1 : 0));
   }
 
   private nodeFilter(url: URL): Set<string> | undefined {
