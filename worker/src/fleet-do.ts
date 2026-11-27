@@ -2041,11 +2041,12 @@ export class FleetDO extends DurableObject<Env> {
   private seedPendingRollups(now: number): void {
     const since = now - METRICS_10S_RETENTION_MS;
     const currentBucket = minuteBucket(now);
+    const fullBucketSince = currentBucket - METRICS_10S_RETENTION_MS + MINUTE_MS;
     const rows = this.sql
       .exec<{ node_id: string; bucket: number }>(
-        "SELECT DISTINCT m.node_id, (m.ts / 60000) * 60000 AS bucket FROM metrics_10s m WHERE m.ts >= ? AND NOT EXISTS (SELECT 1 FROM metrics_1m r WHERE r.node_id = m.node_id AND r.ts = (m.ts / 60000) * 60000) UNION SELECT node_id, (MAX(ts) / 60000) * 60000 AS bucket FROM metrics_10s WHERE ts >= ? GROUP BY node_id ORDER BY bucket",
+        "SELECT m.node_id, (m.ts / 60000) * 60000 AS bucket FROM metrics_10s m WHERE m.ts >= ? AND NOT EXISTS (SELECT 1 FROM metrics_1m r WHERE r.node_id = m.node_id AND r.ts = (m.ts / 60000) * 60000) UNION SELECT node_id, (MAX(ts) / 60000) * 60000 AS bucket FROM metrics_10s WHERE ts >= ? GROUP BY node_id ORDER BY bucket",
         since,
-        since,
+        fullBucketSince,
       )
       .toArray();
     for (const row of rows) {
