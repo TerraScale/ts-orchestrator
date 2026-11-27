@@ -225,7 +225,7 @@ class Stepper {
     this.stages = rolloutStages(this.sequence, ctx.service.mode);
     this.nodesById = new Map(ctx.nodes.map((node) => [node.id, node]));
     const { stage, regions } = stageProgress(ctx.rollout, this.sequence, ctx.service.mode);
-    this.stage = stage;
+    this.stage = this.stages.length === 0 ? 0 : Math.min(stage, this.stages.length - 1);
     this.progress = new Map(regions.map((entry) => [entry.region, { ...entry }]));
   }
 
@@ -354,7 +354,7 @@ class Stepper {
       if (entry !== undefined && !regionDone(entry)) {
         this.stepRegion(entry);
         if (this.finished()) return true;
-        if (!regionDone(entry)) active = true;
+        if (!regionDone(this.progress.get(region))) active = true;
       }
     }
     return active;
