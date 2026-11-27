@@ -3,6 +3,7 @@ import type {
   EventKind,
   NodeInfo,
   PlacementInfo,
+  PlacementMode,
   RolloutInfo,
   RolloutPhase,
   RolloutRegionPhase,
@@ -91,7 +92,8 @@ export function rolloutSequence(rollout: RolloutInfo, service: ServiceSpec, roll
   return orderRegions(rollout.region !== undefined ? [rollout.region] : service.regions, rolloutOrder);
 }
 
-export function rolloutStages(sequence: string[]): string[][] {
+export function rolloutStages(sequence: string[], mode: PlacementMode): string[][] {
+  if (mode === "stateful") return sequence.map((region) => [region]);
   const [first, ...rest] = sequence;
   if (first === undefined) return [];
   return rest.length === 0 ? [[first]] : [[first], rest];
@@ -114,7 +116,7 @@ export interface StageProgress {
   regions: RolloutRegionProgress[];
 }
 
-export function stageProgress(rollout: RolloutInfo, sequence: string[]): StageProgress {
+export function stageProgress(rollout: RolloutInfo, sequence: string[], mode: PlacementMode): StageProgress {
   if (rollout.regionProgress !== undefined) return { stage: rollout.currentWave, regions: rollout.regionProgress };
   const current = rollout.currentRegion;
   const phase = activeRegionPhase(rollout.phase);
@@ -123,11 +125,11 @@ export function stageProgress(rollout: RolloutInfo, sequence: string[]): StagePr
   const active = progressEntry(current, phase, rollout.canaryStartedAt, rollout.waveStartedAt);
   if (index === 0) return { stage: 0, regions: [active] };
   const completed = sequence.slice(0, index).map((region) => progressEntry(region, "succeeded", undefined, undefined));
-  return { stage: 1, regions: [...completed, active] };
+  return { stage: mode === "stateful" ? index : 1, regions: [...completed, active] };
 }
 
-export function regionRunsTarget(rollout: RolloutInfo, sequence: string[], region: string): boolean {
-  const { regions } = stageProgress(rollout, sequence);
+export function regionRunsTarget(rollout: RolloutInfo, sequence: string[], region: string, mode: PlacementMode): boolean {
+  const { regions } = stageProgress(rollout, sequence, mode);
   const phase = regions.find((entry) => entry.region === region)?.phase;
   return phase === "waves" || phase === "succeeded";
 }
@@ -179,7 +181,7 @@ export function createRollout(
   nowMs: number,
 ): RolloutInfo {
   const ordered = orderRegions(regions.length > 0 ? regions : service.regions, rolloutOrder);
-  const stages = rolloutStages(ordered);
+  const stages = rolloutStages(ordered, service.mode);
   const rollout: RolloutInfo = {
     id: `${service.name}-${nowMs.toString(36)}`,
     serviceName: service.name,
@@ -220,9 +222,9 @@ class Stepper {
   constructor(readonly ctx: RolloutContext) {
     this.state = { ...ctx.rollout };
     this.sequence = rolloutSequence(ctx.rollout, ctx.service, ctx.rolloutOrder);
-    this.stages = rolloutStages(this.sequence);
+    this.stages = rolloutStages(this.sequence, ctx.service.mode);
     this.nodesById = new Map(ctx.nodes.map((node) => [node.id, node]));
-    const { stage, regions } = stageProgress(ctx.rollout, this.sequence);
+    const { stage, regions } = stageProgress(ctx.rollout, this.sequence, ctx.service.mode);
     this.stage = stage;
     this.progress = new Map(regions.map((entry) => [entry.region, { ...entry }]));
   }
