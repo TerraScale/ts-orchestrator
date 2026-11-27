@@ -164,7 +164,7 @@ function imageForNewPlacement(service: ServiceSpec, region: string, input: Sched
     if (rollout.serviceName !== service.name || TERMINAL_ROLLOUT.has(rollout.phase) || rollout.phase === "pending") continue;
     const sequence = rolloutSequence(rollout, service, order);
     if (!sequence.includes(region)) continue;
-    return regionRunsTarget(rollout, sequence, region) ? rollout.targetImage : rollout.previousImage ?? service.image;
+    return regionRunsTarget(rollout, sequence, region, service.mode) ? rollout.targetImage : rollout.previousImage ?? service.image;
   }
   return service.image;
 }
