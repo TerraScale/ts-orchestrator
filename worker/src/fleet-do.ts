@@ -135,6 +135,8 @@ const ALARM_INTERVAL_MS = 10_000;
 const IDLE_ALARM_INTERVAL_MS = 30_000;
 const METRICS_10S_RETENTION_MS = 3600_000;
 const METRICS_1M_RETENTION_MS = 48 * 3600_000;
+const MINUTE_MS = 60_000;
+const PRUNE_INTERVAL_MS = MINUTE_MS;
 const EVENTS_KEEP = 2000;
 const ROLLOUT_HISTORY_KEEP = 200;
 const SERVICE_ROLLBACK_HISTORY_KEEP = 20;
@@ -585,6 +587,10 @@ function metricsBucket(ts: number): number {
   return Math.floor(ts / 10_000) * 10_000;
 }
 
+function minuteBucket(ts: number): number {
+  return Math.floor(ts / MINUTE_MS) * MINUTE_MS;
+}
+
 function ipv6GroupCount(part: string): number | null {
   if (part.length === 0) return 0;
   const groups = part.split(":");
@@ -901,11 +907,14 @@ export class FleetDO extends DurableObject<Env> {
   private tlsEnsureInFlight: Promise<unknown> | undefined;
   private nodeSyncPending = Promise.resolve();
   private topologyPublishPending = Promise.resolve();
+  private readonly pendingRollups = new Map<string, number>();
+  private lastPrunedAt = 0;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.sql = ctx.storage.sql;
     this.migrate();
+    this.seedPendingRollups(Date.now());
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
   }
 
@@ -1894,7 +1903,11 @@ export class FleetDO extends DurableObject<Env> {
   private backfillDiskHistory(nodeId: string, usedPct: number, now: number): void {
     const windowStart = now - 330_000;
     const latest = this.sql
-      .exec<Metrics10Row>("SELECT * FROM metrics_10s WHERE node_id = ? ORDER BY ts DESC LIMIT 1", nodeId)
+      .exec<Metrics10Row>(
+        "SELECT * FROM metrics_10s WHERE node_id = ? AND ts >= ? ORDER BY ts DESC LIMIT 1",
+        nodeId,
+        now - METRICS_10S_RETENTION_MS,
+      )
       .toArray()[0];
     this.sql.exec("UPDATE metrics_10s SET disk_used_pct = ? WHERE node_id = ? AND ts >= ?", usedPct, nodeId, windowStart);
     for (const ts of [330_000, 270_000, 210_000, 150_000, 90_000, 30_000].map((ago) => now - ago)) {
@@ -2022,15 +2035,51 @@ export class FleetDO extends DurableObject<Env> {
       containersJson,
       edgeJson,
     );
-    this.rollupMinute(attachment.nodeId, ts);
+    this.advanceRollup(attachment.nodeId, ts);
   }
 
-  private rollupMinute(nodeId: string, ts: number): void {
-    const bucket = Math.floor(ts / 60_000) * 60_000;
+  private seedPendingRollups(now: number): void {
+    const since = now - METRICS_10S_RETENTION_MS;
+    const currentBucket = minuteBucket(now);
+    const fullBucketSince = currentBucket - METRICS_10S_RETENTION_MS + MINUTE_MS;
     const rows = this.sql
-      .exec<Metrics10Row>("SELECT * FROM metrics_10s WHERE node_id = ? AND ts >= ? AND ts < ? ORDER BY ts", nodeId, bucket, bucket + 60_000)
+      .exec<{ node_id: string; bucket: number }>(
+        "SELECT m.node_id, (m.ts / 60000) * 60000 AS bucket FROM metrics_10s m WHERE m.ts >= ? AND NOT EXISTS (SELECT 1 FROM metrics_1m r WHERE r.node_id = m.node_id AND r.ts = (m.ts / 60000) * 60000) UNION SELECT node_id, (MAX(ts) / 60000) * 60000 AS bucket FROM metrics_10s WHERE ts >= ? GROUP BY node_id ORDER BY bucket",
+        since,
+        fullBucketSince,
+      )
       .toArray();
-    if (rows.length === 0) return;
+    for (const row of rows) {
+      if (row.bucket < currentBucket) {
+        this.rollupMinute(row.node_id, row.bucket);
+      } else {
+        this.pendingRollups.set(row.node_id, row.bucket);
+      }
+    }
+  }
+
+  private advanceRollup(nodeId: string, ts: number): void {
+    const bucket = minuteBucket(ts);
+    const pending = this.pendingRollups.get(nodeId);
+    if (pending !== undefined && pending !== bucket) this.rollupMinute(nodeId, pending);
+    this.pendingRollups.set(nodeId, bucket);
+  }
+
+  private flushStaleRollups(now: number): void {
+    const cutoff = minuteBucket(now);
+    for (const [nodeId, bucket] of this.pendingRollups) {
+      if (bucket >= cutoff) continue;
+      this.rollupMinute(nodeId, bucket);
+      this.pendingRollups.delete(nodeId);
+    }
+  }
+
+  private computeMinutePoint(nodeId: string, ts: number): MetricsPoint1m | null {
+    const bucket = minuteBucket(ts);
+    const rows = this.sql
+      .exec<Metrics10Row>("SELECT * FROM metrics_10s WHERE node_id = ? AND ts >= ? AND ts < ? ORDER BY ts", nodeId, bucket, bucket + MINUTE_MS)
+      .toArray();
+    if (rows.length === 0) return null;
     const cpu = rows.map((row) => row.cpu_pct);
     let requests = 0;
     let errors = 0;
@@ -2050,18 +2099,35 @@ export class FleetDO extends DurableObject<Env> {
       rps.push(rowRps);
       p95.push(rowP95);
     }
+    return {
+      nodeId,
+      ts: bucket,
+      cpuAvg: round(average(cpu), 2),
+      cpuP95: round(percentile(cpu, 95), 2),
+      cpuPsiAvg: round(average(rows.map((row) => row.cpu_psi_10)), 2),
+      memAvgMiB: Math.round(average(rows.map((row) => row.mem_used_mib))),
+      diskPct: round(Math.max(...rows.map((row) => row.disk_used_pct)), 2),
+      edgeRps: round(average(rps), 2),
+      edge5xx: requests > 0 ? round((errors / requests) * 100, 3) : 0,
+      edgeP95Ms: round(average(p95), 1),
+    };
+  }
+
+  private rollupMinute(nodeId: string, ts: number): void {
+    const point = this.computeMinutePoint(nodeId, ts);
+    if (point === null) return;
     this.sql.exec(
       "INSERT OR REPLACE INTO metrics_1m (node_id, ts, cpu_avg, cpu_p95, cpu_psi_avg, mem_avg_mib, disk_pct, edge_rps, edge_5xx, edge_p95_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-      nodeId,
-      bucket,
-      round(average(cpu), 2),
-      round(percentile(cpu, 95), 2),
-      round(average(rows.map((row) => row.cpu_psi_10)), 2),
-      Math.round(average(rows.map((row) => row.mem_used_mib))),
-      round(Math.max(...rows.map((row) => row.disk_used_pct)), 2),
-      round(average(rps), 2),
-      requests > 0 ? round((errors / requests) * 100, 3) : 0,
-      round(average(p95), 1),
+      point.nodeId,
+      point.ts,
+      point.cpuAvg,
+      point.cpuP95,
+      point.cpuPsiAvg,
+      point.memAvgMiB,
+      point.diskPct,
+      point.edgeRps,
+      point.edge5xx,
+      point.edgeP95Ms,
     );
   }
 
@@ -2416,7 +2482,8 @@ export class FleetDO extends DurableObject<Env> {
     const now = Date.now();
     try {
       await this.runMaintenanceTask("mark_down_nodes", () => this.markDownNodes(now));
-      await this.runMaintenanceTask("prune", () => this.prune(now));
+      if (now - this.lastPrunedAt >= PRUNE_INTERVAL_MS) await this.runMaintenanceTask("prune", () => this.prune(now));
+      await this.runMaintenanceTask("rollups", () => this.flushStaleRollups(now));
       await this.runMaintenanceTask("reconcile", () => this.reconcile(now));
       await this.runMaintenanceTask("rollouts", () => this.advanceRollouts(now));
       await this.runMaintenanceTask("pending_volume_grows", () => this.retryPendingVolumeGrows(now));
@@ -2469,6 +2536,7 @@ export class FleetDO extends DurableObject<Env> {
       for (const { id } of removed) this.deleteState(`rollout_by:${id}`);
     });
     this.sql.exec("DELETE FROM kv_state WHERE key >= 'reaped_instance:' AND key < 'reaped_instance;' AND CAST(value AS INTEGER) <= ?", now);
+    this.lastPrunedAt = now;
   }
 
   private nodeEdgeMetrics(snapshot: EdgeMetricsSnapshot | null | undefined, receivedAt: number): NodeEdgeMetrics | undefined {
@@ -2972,6 +3040,7 @@ export class FleetDO extends DurableObject<Env> {
     this.deleteState(`sent_desired:${nodeId}`);
     this.deleteState(`sent_routes:${nodeId}`);
     this.deleteState(`volume_grow:${nodeId}`);
+    this.pendingRollups.delete(nodeId);
   }
 
   private async executeAction(
@@ -3183,6 +3252,21 @@ export class FleetDO extends DurableObject<Env> {
       }));
   }
 
+  private metricsPoints1mLive(now: number, nodeIds?: Set<string>): MetricsPoint1m[] {
+    const since = now - METRICS_1M_RETENTION_MS;
+    const byKey = new Map<string, MetricsPoint1m>();
+    for (const point of this.metricsPoints1m(since, nodeIds)) {
+      byKey.set(`${point.nodeId}|${point.ts}`, point);
+    }
+    for (const [nodeId, bucket] of this.pendingRollups) {
+      if (bucket < since) continue;
+      if (nodeIds !== undefined && !nodeIds.has(nodeId)) continue;
+      const live = this.computeMinutePoint(nodeId, bucket);
+      if (live !== null) byKey.set(`${nodeId}|${bucket}`, live);
+    }
+    return [...byKey.values()].sort((a, b) => a.ts - b.ts || (a.nodeId < b.nodeId ? -1 : a.nodeId > b.nodeId ? 1 : 0));
+  }
+
   private nodeFilter(url: URL): Set<string> | undefined {
     const region = url.searchParams.get("region");
     const node = url.searchParams.get("node");
@@ -3206,7 +3290,7 @@ export class FleetDO extends DurableObject<Env> {
     const now = Date.now();
     const window = url.searchParams.get("window") === "48h" ? "48h" : "1h";
     const filter = this.nodeFilter(url);
-    if (window === "48h") return { window, ts: now, points: this.metricsPoints1m(now - METRICS_1M_RETENTION_MS, filter) };
+    if (window === "48h") return { window, ts: now, points: this.metricsPoints1mLive(now, filter) };
     return { window, ts: now, points: this.metricsPoints10s(now - METRICS_10S_RETENTION_MS, filter) };
   }
 
@@ -3873,6 +3957,7 @@ export class FleetDO extends DurableObject<Env> {
       this.deleteState(`sent_desired:${nodeId}`);
       this.deleteState(`sent_routes:${nodeId}`);
       this.deleteState(`volume_grow:${nodeId}`);
+      this.pendingRollups.delete(nodeId);
       this.recordEvent("node_lost", nodeId, { phase: "removed", force, by: principal.owner }, row.region);
     });
     await this.reconcile(now);

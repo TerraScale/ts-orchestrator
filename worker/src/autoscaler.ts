@@ -328,7 +328,7 @@ function fitsWithout(
   }
   const nodesById = new Map(regionNodes.map((node) => [node.id, node]));
   const points = input.metrics1m.filter(
-    (point) => point.ts > input.nowMs - POOL_DOWN_WINDOW_MS && nodesById.has(point.nodeId),
+    (point) => point.ts > input.nowMs - POOL_DOWN_WINDOW_MS - MINUTE_MS && nodesById.has(point.nodeId),
   );
   const buckets = minuteBuckets(points);
   if (buckets.size < POOL_DOWN_WINDOW_MS / MINUTE_MS) return false;
