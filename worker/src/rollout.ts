@@ -323,6 +323,7 @@ class Stepper {
     for (;;) {
       const scope = this.stages[this.stage];
       if (scope === undefined) {
+        if (this.stepStranded([])) return;
         this.succeed();
         return;
       }
@@ -332,13 +333,31 @@ class Stepper {
         else if (!regionDone(entry)) this.stepRegion(entry);
         if (this.finished()) return;
       }
-      if (!scope.every((region) => regionDone(this.progress.get(region)))) return;
+      if (!scope.every((region) => regionDone(this.progress.get(region)))) {
+        this.stepStranded(scope);
+        return;
+      }
       if (this.stage + 1 >= this.stages.length) {
+        if (this.stepStranded(scope)) return;
         this.succeed();
         return;
       }
       this.stage += 1;
     }
+  }
+
+  private stepStranded(scope: readonly string[]): boolean {
+    let active = false;
+    for (const region of this.sequence) {
+      if (scope.includes(region)) continue;
+      const entry = this.progress.get(region);
+      if (entry !== undefined && !regionDone(entry)) {
+        this.stepRegion(entry);
+        if (this.finished()) return true;
+        if (!regionDone(entry)) active = true;
+      }
+    }
+    return active;
   }
 
   publish(): void {
