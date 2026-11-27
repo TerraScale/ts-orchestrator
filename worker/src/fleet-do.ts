@@ -135,6 +135,9 @@ const ALARM_INTERVAL_MS = 10_000;
 const IDLE_ALARM_INTERVAL_MS = 30_000;
 const METRICS_10S_RETENTION_MS = 3600_000;
 const METRICS_1M_RETENTION_MS = 48 * 3600_000;
+const MINUTE_MS = 60_000;
+const ROLLUP_RECOVERY_MS = 5 * MINUTE_MS;
+const PRUNE_INTERVAL_MS = MINUTE_MS;
 const EVENTS_KEEP = 2000;
 const ROLLOUT_HISTORY_KEEP = 200;
 const SERVICE_ROLLBACK_HISTORY_KEEP = 20;
@@ -585,6 +588,10 @@ function metricsBucket(ts: number): number {
   return Math.floor(ts / 10_000) * 10_000;
 }
 
+function minuteBucket(ts: number): number {
+  return Math.floor(ts / MINUTE_MS) * MINUTE_MS;
+}
+
 function ipv6GroupCount(part: string): number | null {
   if (part.length === 0) return 0;
   const groups = part.split(":");
@@ -901,11 +908,14 @@ export class FleetDO extends DurableObject<Env> {
   private tlsEnsureInFlight: Promise<unknown> | undefined;
   private nodeSyncPending = Promise.resolve();
   private topologyPublishPending = Promise.resolve();
+  private readonly pendingRollups = new Map<string, number>();
+  private lastPrunedAt = 0;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.sql = ctx.storage.sql;
     this.migrate();
+    this.seedPendingRollups(Date.now());
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
   }
 
@@ -2022,13 +2032,39 @@ export class FleetDO extends DurableObject<Env> {
       containersJson,
       edgeJson,
     );
-    this.rollupMinute(attachment.nodeId, ts);
+    this.advanceRollup(attachment.nodeId, ts);
+  }
+
+  private seedPendingRollups(now: number): void {
+    const rows = this.sql
+      .exec<{ node_id: string; ts: number }>(
+        "SELECT node_id, MAX(ts) AS ts FROM metrics_10s WHERE ts >= ? GROUP BY node_id",
+        now - ROLLUP_RECOVERY_MS,
+      )
+      .toArray();
+    for (const row of rows) this.pendingRollups.set(row.node_id, minuteBucket(row.ts));
+  }
+
+  private advanceRollup(nodeId: string, ts: number): void {
+    const bucket = minuteBucket(ts);
+    const pending = this.pendingRollups.get(nodeId);
+    if (pending !== undefined && pending !== bucket) this.rollupMinute(nodeId, pending);
+    this.pendingRollups.set(nodeId, bucket);
+  }
+
+  private flushStaleRollups(now: number): void {
+    const cutoff = minuteBucket(now) - MINUTE_MS;
+    for (const [nodeId, bucket] of this.pendingRollups) {
+      if (bucket >= cutoff) continue;
+      this.rollupMinute(nodeId, bucket);
+      this.pendingRollups.delete(nodeId);
+    }
   }
 
   private rollupMinute(nodeId: string, ts: number): void {
-    const bucket = Math.floor(ts / 60_000) * 60_000;
+    const bucket = minuteBucket(ts);
     const rows = this.sql
-      .exec<Metrics10Row>("SELECT * FROM metrics_10s WHERE node_id = ? AND ts >= ? AND ts < ? ORDER BY ts", nodeId, bucket, bucket + 60_000)
+      .exec<Metrics10Row>("SELECT * FROM metrics_10s WHERE node_id = ? AND ts >= ? AND ts < ? ORDER BY ts", nodeId, bucket, bucket + MINUTE_MS)
       .toArray();
     if (rows.length === 0) return;
     const cpu = rows.map((row) => row.cpu_pct);
@@ -2416,7 +2452,8 @@ export class FleetDO extends DurableObject<Env> {
     const now = Date.now();
     try {
       await this.runMaintenanceTask("mark_down_nodes", () => this.markDownNodes(now));
-      await this.runMaintenanceTask("prune", () => this.prune(now));
+      if (now - this.lastPrunedAt >= PRUNE_INTERVAL_MS) await this.runMaintenanceTask("prune", () => this.prune(now));
+      await this.runMaintenanceTask("rollups", () => this.flushStaleRollups(now));
       await this.runMaintenanceTask("reconcile", () => this.reconcile(now));
       await this.runMaintenanceTask("rollouts", () => this.advanceRollouts(now));
       await this.runMaintenanceTask("pending_volume_grows", () => this.retryPendingVolumeGrows(now));
@@ -2469,6 +2506,7 @@ export class FleetDO extends DurableObject<Env> {
       for (const { id } of removed) this.deleteState(`rollout_by:${id}`);
     });
     this.sql.exec("DELETE FROM kv_state WHERE key >= 'reaped_instance:' AND key < 'reaped_instance;' AND CAST(value AS INTEGER) <= ?", now);
+    this.lastPrunedAt = now;
   }
 
   private nodeEdgeMetrics(snapshot: EdgeMetricsSnapshot | null | undefined, receivedAt: number): NodeEdgeMetrics | undefined {
