@@ -218,27 +218,64 @@ async function pgTlsProbe(port, sni) {
   console.log(result);
 }
 
-function ociBackplane(port, upstream, instanceId, volumeId, compartmentId) {
+function ociBackplane(port, upstream, instanceId, volumeId, compartmentId, logFile) {
+  const timeCreated = new Date(Date.now() - 600_000).toISOString();
+  const record = (entry) => appendFileSync(logFile, `${JSON.stringify({ at: Date.now(), ...entry })}\n`);
+  const mockVolumeGiB = async () => {
+    const state = await fetch(new URL("/_mock/state", upstream)).then((reply) => reply.json());
+    return state.volumes[volumeId] ?? 50;
+  };
+  let updateLost = false;
+  let staleGiB = null;
+  let releaseStale = false;
   createServer(async (request, response) => {
     const url = new URL(request.url, upstream);
     const send = (body, headers = {}) => {
       response.writeHead(200, { "Content-Type": "application/json", ...headers });
       response.end(JSON.stringify(body));
     };
+    if (request.method === "POST" && url.pathname === "/_e2e/release-stale-volume") {
+      releaseStale = true;
+      record({ type: "release_stale_volume", staleGiB });
+      response.writeHead(204);
+      response.end();
+      return;
+    }
+    if (request.method === "PUT" && url.pathname === `/20160918/volumes/${volumeId}` && !updateLost) {
+      updateLost = true;
+      const previousGiB = await mockVolumeGiB();
+      const forwarded = httpRequest(url, { method: request.method, headers: request.headers }, (reply) => {
+        reply.resume();
+        reply.once("end", () => {
+          staleGiB = previousGiB;
+          record({ type: "update_volume_lost", status: reply.statusCode, staleGiB });
+          response.writeHead(503, { "Content-Type": "application/json" });
+          response.end(JSON.stringify({ code: "ServiceUnavailable", message: "e2e: UpdateVolume was accepted but its response was lost" }));
+        });
+      });
+      forwarded.once("error", () => response.destroy());
+      request.pipe(forwarded);
+      return;
+    }
     if (request.method === "GET" && url.pathname === `/20160918/instances/${instanceId}`) {
       send({ id: instanceId, compartmentId, metadata: { ts_region: "gru", ts_pool: "stateful", ts_stateful_index: "0", ts_data_volume_id: volumeId } });
       return;
     }
     if (request.method === "GET" && url.pathname === "/20160918/volumeAttachments") {
-      const attached = url.searchParams.get("instanceId") === instanceId &&
-        url.searchParams.get("volumeId") === volumeId && url.searchParams.get("compartmentId") === compartmentId;
-      send(attached ? [{ instanceId, volumeId, lifecycleState: "ATTACHED", isReadOnly: false, isShareable: false }] : []);
+      const attached = url.searchParams.get("instanceId") === instanceId && !url.searchParams.has("volumeId") &&
+        url.searchParams.get("compartmentId") === compartmentId;
+      send(attached ? [
+        { id: "ocid1.volumeattachment.e2e.retired", instanceId, volumeId: "ocid1.volume.e2e.retired", device: "/dev/oracleoci/oraclevdb", timeCreated, lifecycleState: "DETACHED", isReadOnly: false, isShareable: false },
+        { id: `ocid1.volumeattachment.e2e.${volumeId}`, instanceId, volumeId, device: "/dev/oracleoci/oraclevdb", timeCreated, lifecycleState: "ATTACHED", isReadOnly: false, isShareable: false },
+      ] : []);
       return;
     }
     if (request.method === "GET" && url.pathname === `/20160918/volumes/${volumeId}`) {
-      const state = await fetch(new URL("/_mock/state", upstream)).then((reply) => reply.json());
-      const sizeInGBs = state.volumes[volumeId] ?? 50;
-      send({ id: volumeId, sizeInGBs }, { ETag: `"${sizeInGBs}"` });
+      const liveGiB = await mockVolumeGiB();
+      const sizeInGBs = staleGiB ?? liveGiB;
+      record({ type: "volume_read", sizeInGBs, stale: staleGiB !== null });
+      if (releaseStale) staleGiB = null;
+      send({ id: volumeId, sizeInGBs, lifecycleState: "AVAILABLE" }, { ETag: `"${sizeInGBs}"` });
       return;
     }
     const proxied = httpRequest(url, { method: request.method, headers: request.headers }, (reply) => {
@@ -269,10 +306,14 @@ async function fakeNode(url, secret, instanceId, poolKind, logFile, tlsDir) {
   let socket;
   let connection = 0;
   let reconnect = false;
+  let held = false;
   let dataVolumeGiB = 50;
+  let volumeSeq = 0;
+  let probes = 0;
   const send = (message) => {
     if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
   };
+  const volumes = () => poolKind === "stateful" ? [{ mountPath: "/var/lib/ts-data", device: "/dev/oracleoci/oraclevdb", sizeGiB: dataVolumeGiB, usedPct: 10, identity: "by-uuid/0e2e0000-0000-4000-8000-00000000000b" }] : [];
   const reports = () =>
     [...desired.values()].map((placement) => ({
       placementId: placement.placementId,
@@ -282,15 +323,17 @@ async function fakeNode(url, secret, instanceId, poolKind, logFile, tlsDir) {
       configHash: hash(placement.service),
       hostPort: hostPort(placement.placementId),
     }));
-  const heartbeat = (cpuPct = 5, padding = "") => {
+  const heartbeat = (cpuPct = 5, padding = "", volumeChallenge = undefined, replayedSeq = undefined) => {
     const ts = Date.now();
     const services = [...new Set([...desired.values()].map((placement) => placement.service.name))];
     send({
       type: "heartbeat",
       ts,
       placements: reports(),
+      volumes: volumes(),
       hostMetrics: { ts, cpuPct, cpuPsi10: 0, memTotalMiB: 16384, memUsedMiB: 2048, memPsi10: 0, ioPsi10: 0, diskUsedPct: 10, netRxBps: 0, netTxBps: 0, load1: 0.1 },
       containerMetrics: [],
+      volumeSeq: replayedSeq ?? ++volumeSeq,
       edgeMetrics: {
         ts,
         windowSeconds: 10,
@@ -298,10 +341,12 @@ async function fakeNode(url, secret, instanceId, poolKind, logFile, tlsDir) {
         postgresConnections: 0,
         ...(padding ? { padding } : {}),
       },
+      ...(volumeChallenge === undefined ? {} : { volumeChallenge }),
     });
   };
   const onOpen = () => {
     connection += 1;
+    volumeSeq = 0;
     record({ type: "connected", connection });
     send({
       type: "hello",
@@ -316,8 +361,10 @@ async function fakeNode(url, secret, instanceId, poolKind, logFile, tlsDir) {
       memTotalMiB: 16384,
       diskTotalGiB: 100,
       labels: { "oci.instance-id": "agent-fixture", "oci.data-volume-id": "agent-fixture", "oci.stateful-index": "9", source: "e2e" },
-      volumes: poolKind === "stateful" ? [{ mountPath: "/var/lib/ts-data", device: "/dev/oracleoci/oraclevdb", sizeGiB: dataVolumeGiB, usedPct: 10 }] : [],
+      volumes: volumes(),
       agentVersion: "e2e-simulated",
+      volumeSeq: ++volumeSeq,
+      capabilities: ["grow_volume_id"],
     });
     if (connection > 1) return;
     if (poolKind === "worker") heartbeat(92, "é".repeat(32_768));
@@ -353,13 +400,29 @@ async function fakeNode(url, secret, instanceId, poolKind, logFile, tlsDir) {
         heartbeat();
         send({ type: "drain_complete", nodeId });
         break;
+      case "probe_volumes": {
+        probes += 1;
+        record({ type: message.type, connection, challenge: message.challenge, probe: probes });
+        if (probes > 1) {
+          heartbeat(5, "", message.challenge);
+          record({ type: "probe_reply", connection, probe: probes, volumeSeq });
+          break;
+        }
+        const issuedAtOrBefore = volumeSeq;
+        heartbeat(5, "", undefined, issuedAtOrBefore + 2);
+        heartbeat(5, "", message.challenge, issuedAtOrBefore + 1);
+        volumeSeq = issuedAtOrBefore + 2;
+        record({ type: "probe_reply_superseded", connection, issuedAtOrBefore, acceptedSeq: issuedAtOrBefore + 2, replySeq: issuedAtOrBefore + 1 });
+        break;
+      }
       case "grow_volume": {
-        record({ type: message.type, connection, mountPath: message.mountPath });
+        record({ type: message.type, connection, mountPath: message.mountPath, volumeId: message.volumeId, device: message.device, volumeIdentity: message.volumeIdentity });
         const firstGrow = dataVolumeGiB !== 97;
         dataVolumeGiB = 97;
-        send({ type: "volume_grown", nodeId, volumePath: message.mountPath, newSizeGiB: dataVolumeGiB });
+        const grown = { type: "volume_grown", nodeId, volumePath: message.mountPath, newSizeGiB: dataVolumeGiB, volumeId: message.volumeId };
+        send(grown);
         if (!firstGrow) break;
-        send({ type: "volume_grown", nodeId, volumePath: message.mountPath, newSizeGiB: dataVolumeGiB });
+        send(grown);
         reconnect = true;
         socket.close(1000, "e2e reconnect after volume grow");
         break;
@@ -382,12 +445,18 @@ async function fakeNode(url, secret, instanceId, poolKind, logFile, tlsDir) {
     socket.addEventListener("message", onMessage);
     socket.addEventListener("close", (event) => {
       record({ type: "closed", connection, code: event.code, reason: event.reason });
+      if (held) return;
       if (!reconnect) process.exit(0);
       reconnect = false;
       connect();
     });
     socket.addEventListener("error", () => record({ type: "socket_error" }));
   };
+  process.on("SIGUSR2", () => {
+    held = !held;
+    if (held) socket.close(1000, "e2e hold");
+    else connect();
+  });
   connect();
 }
 
@@ -468,7 +537,7 @@ expect_code 401 "IMDS rejects calls without the Oracle bearer" "$OCI/opc/v2/inst
 curl -sf -H "Authorization: Bearer Oracle" "$OCI/opc/v2/identity/cert.pem" | openssl x509 -noout -subject | grep -q "opc-tenant:" || die "IMDS identity certificate lacks opc-tenant"
 ok "IMDS identity certificate carries opc-tenant"
 COMPARTMENT_ID="$(jq -er '.regions[] | select(.label == "gru") | .compartmentId' "$ROOT/deploy/fleet.json")"
-spawn oci-backplane "$WORK" node "$WORK/e2e.mjs" oci-backplane "$WORKER_OCI_PORT" "$OCI" "$STATEFUL_INSTANCE" "$VOLUME_ID" "$COMPARTMENT_ID"
+spawn oci-backplane "$WORK" node "$WORK/e2e.mjs" oci-backplane "$WORKER_OCI_PORT" "$OCI" "$STATEFUL_INSTANCE" "$VOLUME_ID" "$COMPARTMENT_ID" "$WORK/oci-backplane.jsonl"
 wait_for "worker OCI fixture /healthz" 30 curl -sf "$WORKER_OCI/healthz"
 
 log "Starting wrangler dev (orch + atlas) against oci-mock"
@@ -555,6 +624,7 @@ ok "ts-orch diff ran against live desired state"
 log "5a. Real FleetDO enrollment and WS heartbeats (simulated stateful + worker nodes)"
 mkdir -p "$WORK/edge-run"
 spawn fake-s1 "$WORK" node "$WORK/e2e.mjs" fake-node "$W" "$ENROLL_SECRET" "$STATEFUL_INSTANCE" stateful "$WORK/fake-s1.jsonl" "$WORK/edge-run/tls"
+FAKE_S1_PID=$SPAWNED
 spawn fake-w1 "$WORK" node "$WORK/e2e.mjs" fake-node "$W" "$ENROLL_SECRET" e2e-w1 worker "$WORK/fake-w1.jsonl"
 node_status() { api GET /api/nodes | jq -er --arg id "$1" '.nodes[] | select(.id == $id) | .status'; }
 node_is() { [[ "$(node_status "$1")" == "$2" ]]; }
@@ -737,24 +807,73 @@ timeout 60 "${TS[@]}" logs e2e-web --node "$EXEC_NODE" --tail 5 > "$LOGS/logs-fa
 grep -q "simulated log line from $EXEC_NODE" "$LOGS/logs-fake.txt" || die "ts-orch logs did not stream node log chunks"
 ok "ts-orch logs streamed node output"
 
-log "5e. Disk >75% sustained 5 minutes (backfilled history) -> OCI UpdateVolume"
+log "5e. Disk >75% sustained 5 minutes (backfilled history) -> OCI UpdateVolume with a lost response and a delayed OCI size across a reconnect"
 volume_grown() { curl -sf "$OCI/_mock/state" | jq -e --arg id "$VOLUME_ID" '.volumes[$id] == 100 and ([.calls[] | select(.operation == "UpdateVolume" and .target == $id)] | length >= 1)' >/dev/null; }
 wait_for "oci-mock recorded UpdateVolume(100 GB) for $VOLUME_ID" 60 volume_grown
+update_lost() { jq -se 'any(.[]; .type == "update_volume_lost" and .status == 200 and .staleGiB == 50)' "$WORK/oci-backplane.jsonl" >/dev/null; }
+wait_for "OCI accepted UpdateVolume but its response was lost and OCI still reports 50 GB" 30 update_lost
+chaos "$(jq -cn --arg id "$STATEFUL_NODE" '{kind: "fill_disk", nodeId: $id, usedPct: 0}')" >/dev/null
+disk_below() {
+  api GET /api/nodes | jq -e --arg id "$STATEFUL_NODE" \
+    '[.nodes[] | select(.id == $id) | .volumes[] | select(.mountPath == "/var/lib/ts-data") | .usedPct] | length == 1 and all(. < 75)' >/dev/null
+}
+wait_for "simulated disk usage on $STATEFUL_NODE dropped below the 75% autoscale threshold" 30 disk_below
+stale_reads() { jq -se '[.[] | select(.type == "volume_read" and .stale and .sizeInGBs == 50)] | length >= 2' "$WORK/oci-backplane.jsonl" >/dev/null; }
+wait_for "autoscaler and volume reconcile re-read the stale 50 GB OCI size without re-issuing the resize" 90 stale_reads
+kill -USR2 "$FAKE_S1_PID"
+held() { jq -se 'any(.[]; .type == "closed" and .reason == "e2e hold")' "$WORK/fake-s1.jsonl" >/dev/null; }
+wait_for "$STATEFUL_NODE disconnected while OCI still reports the old size" 10 held
+held_at="$(jq -se '[.[] | select(.type == "closed" and .reason == "e2e hold") | .at] | max' "$WORK/fake-s1.jsonl")"
+offline_reconciled() {
+  grep -ao '{"type":"volume_reconcile_offline_dropped"[^}]*}' "$LOGS/worker.log" |
+    jq -se --arg id "$STATEFUL_NODE" --argjson after "$held_at" 'any(.[]; .nodeId == $id and .at > $after)' >/dev/null
+}
+wait_for "a FleetDO alarm dropped the volume_reconcile schedule of offline $STATEFUL_NODE while volume_resize_target kept the 100 GB target" 90 offline_reconciled
+wait_for "$STATEFUL_NODE marked down while offline" 30 node_is "$STATEFUL_NODE" down
+grep -q '"type":"grow_volume"' "$WORK/fake-s1.jsonl" && die "grow_volume was sent while OCI still reported the old size"
+curl -sf -X POST "$WORKER_OCI/_e2e/release-stale-volume" >/dev/null || die "oci-backplane did not arm the delayed OCI size update"
+kill -USR2 "$FAKE_S1_PID"
+reconnected() { jq -se 'any(.[]; .type == "connected" and .connection == 2)' "$WORK/fake-s1.jsonl" >/dev/null; }
+wait_for "$STATEFUL_NODE reconnected after the offline reconcile tick" 30 reconnected
+reconnected_at="$(jq -se '[.[] | select(.type == "connected" and .connection == 2) | .at] | min' "$WORK/fake-s1.jsonl")"
+disk_below || die "$STATEFUL_NODE reported disk usage above the autoscale threshold on reconnect"
 grow_seen() { grep -q '"type":"grow_volume"' "$WORK/fake-s1.jsonl"; }
-wait_for "$STATEFUL_NODE received grow_volume" 60 grow_seen
+wait_for "$STATEFUL_NODE received grow_volume once OCI reported the volume_resize_target size as AVAILABLE" 120 grow_seen
+grow_at="$(jq -se '[.[] | select(.type == "grow_volume") | .at] | min' "$WORK/fake-s1.jsonl")"
+disk_below || die "$STATEFUL_NODE disk usage rose above the autoscale threshold, so grow_volume may have come from the autoscaler instead of volume_resize_target recovery"
+jq -se --argjson since "$reconnected_at" --argjson grow "$grow_at" '[.[] | select(.type == "volume_read" and .at > $since)] |
+  length >= 2 and .[0].stale and .[0].sizeInGBs == 50 and ([.[] | select(.stale)] | length) == 1 and
+  any(.[]; (.stale | not) and .sizeInGBs == 100 and .at < $grow)' "$WORK/oci-backplane.jsonl" >/dev/null ||
+  die "volume_resize_target did not survive the disconnect: grow_volume was not driven by a re-read after a stale post-reconnect OCI size"
+curl -sf "$OCI/_mock/state" | jq -e --arg id "$VOLUME_ID" '[.calls[] | select(.operation == "UpdateVolume" and .target == $id)] | length == 1' >/dev/null ||
+  die "a lost UpdateVolume response re-issued the OCI resize instead of reconciling the accepted size"
+probe_at="$(jq -s '[.[] | select(.type == "probe_volumes" and .probe == 2 and (.challenge | type == "string" and length > 0)) | .at] | min // empty' "$WORK/fake-s1.jsonl")"
+[ -n "$probe_at" ] || die "$STATEFUL_NODE was not re-probed after its first probe_volumes reply carried a volumeSeq above the challenge but below an accepted heartbeat"
+jq -se '[.[] | select(.type == "probe_reply_superseded")] as $stale | [.[] | select(.type == "probe_reply" and .probe == 2)] as $fresh |
+  ($stale | length) == 1 and ($stale[0] | .replySeq > .issuedAtOrBefore and .replySeq < .acceptedSeq) and ($fresh | length) == 1 and
+  ($fresh[0].connection != $stale[0].connection or $fresh[0].volumeSeq >= $stale[0].issuedAtOrBefore + 3)' "$WORK/fake-s1.jsonl" >/dev/null ||
+  die "the first probe_volumes reply did not isolate the monotonic volumeSeq guard (reply seq must exceed issuance but trail an accepted heartbeat)"
+curl -sf "$OCI/_mock/state" | jq -e --arg id "$VOLUME_ID" --argjson probe "$probe_at" '
+  [.calls[] | select(.operation == "UpdateVolume" and .target == $id) | .at |
+    capture("^(?<s>[^.+Z]+)(\\.(?<f>[0-9]+))?") | (((.s + "Z") | fromdateiso8601) * 1000 + (((.f // "") + "000")[0:3] | tonumber))] |
+  length >= 1 and all(. > $probe)' >/dev/null ||
+  die "OCI UpdateVolume for $VOLUME_ID was issued on a superseded probe_volumes reply instead of a fresh volumeSeq"
+jq -se --arg id "$VOLUME_ID" '[.[] | select(.type == "grow_volume")] |
+  all(.volumeId == $id and .device == "/dev/oracleoci/oraclevdb" and .volumeIdentity == "by-uuid/0e2e0000-0000-4000-8000-00000000000b")' "$WORK/fake-s1.jsonl" >/dev/null ||
+  die "grow_volume was not bound to OCI volume $VOLUME_ID at /dev/oracleoci/oraclevdb with its by-uuid filesystem volume identity"
 grown_event() {
   api GET /api/events | jq -e --arg node "$STATEFUL_NODE" \
     'any(.events[]; .kind == "volume_grown" and .subject == $node and .detail.newSizeGiB == "97")' >/dev/null
 }
 wait_for "volume_grown recorded for $STATEFUL_NODE at 97 GiB usable ext4" 60 grown_event
-resynced() { jq -se 'any(.[]; .type == "sync_tls" and .connection == 2)' "$WORK/fake-s1.jsonl" >/dev/null; }
+resynced() { jq -se 'any(.[]; .type == "sync_tls" and .connection == 3)' "$WORK/fake-s1.jsonl" >/dev/null; }
 wait_for "$STATEFUL_NODE reconnected after a duplicate 97 GiB volume_grown and received sync_tls" 60 resynced
 jq -se '[.[] | select(.type == "grow_volume")] | length == 1' "$WORK/fake-s1.jsonl" >/dev/null ||
   die "grow_volume was replayed on reconnect after a 97 GiB ext4 report for a 100 GiB target"
 api GET /api/events | jq -e --arg node "$STATEFUL_NODE" \
   '[.events[] | select(.kind == "volume_grown" and .subject == $node)] | length == 1' >/dev/null ||
   die "duplicate volume_grown(97) was recorded more than once for $STATEFUL_NODE"
-ok "volume grow cleared within ext4 overhead tolerance and survived a duplicate report and reconnect"
+ok "lost UpdateVolume's volume_resize_target survived a disconnect with OCI still on the old size, then grew once OCI reported 100 GB AVAILABLE and cleared within ext4 tolerance across a duplicate report and reconnect"
 
 log "5f. Node drain"
 "${TS[@]}" node drain e2e-w1 > "$LOGS/drain-fake.txt"

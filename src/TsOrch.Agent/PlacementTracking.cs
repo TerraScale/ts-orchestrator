@@ -3,17 +3,19 @@ using System.Threading.Channels;
 
 namespace TsOrch.Agent;
 
+public readonly record struct OutboxEntry(AgentMessage Message, CancellationToken SessionToken);
+
 public sealed class AgentOutbox
 {
     private const int Capacity = 1024;
 
-    private readonly Channel<AgentMessage> _channel = Channel.CreateBounded<AgentMessage>(new BoundedChannelOptions(Capacity)
+    private readonly Channel<OutboxEntry> _channel = Channel.CreateBounded<OutboxEntry>(new BoundedChannelOptions(Capacity)
     {
         FullMode = BoundedChannelFullMode.Wait,
         SingleReader = true,
     });
 
-    public ChannelReader<AgentMessage> Reader => _channel.Reader;
+    public ChannelReader<OutboxEntry> Reader => _channel.Reader;
 
     internal static Channel<LogChunk> CreateFollowedLogChannel() =>
         Channel.CreateBounded<LogChunk>(new BoundedChannelOptions(256)
@@ -22,10 +24,13 @@ public sealed class AgentOutbox
             SingleReader = true,
         });
 
-    public ValueTask EnqueueAsync(AgentMessage message, CancellationToken cancellationToken)
+    public ValueTask EnqueueAsync(AgentMessage message, CancellationToken cancellationToken) =>
+        EnqueueAsync(message, CancellationToken.None, cancellationToken);
+
+    public ValueTask EnqueueAsync(AgentMessage message, CancellationToken sessionToken, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(message);
-        return _channel.Writer.WriteAsync(message, cancellationToken);
+        return _channel.Writer.WriteAsync(new OutboxEntry(message, sessionToken), cancellationToken);
     }
 }
 

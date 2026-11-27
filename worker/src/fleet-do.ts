@@ -37,12 +37,15 @@ import {
   VOLUME_GROW_GIB,
   VOLUME_MAX_GIB,
   VOLUME_USAGE_THRESHOLD_PCT,
+  hasStableVolumeIdentity,
   volumeGrowCooldownKey,
+  volumeGrowTarget,
   volumeReachedTarget,
   type AutoscaleAction,
+  type VolumeGrowTarget,
 } from "./autoscaler";
 import type { Env } from "./env";
-import { isOciRegion, OciRestClient, type PoolInstance } from "./oci-client";
+import { isOciRegion, ociVolumeReady, OciRestClient, type OciDataVolume, type PoolInstance } from "./oci-client";
 import type {
   AgentMessage,
   AtlasPlacement,
@@ -158,6 +161,17 @@ const MAX_CHALLENGES = 1000;
 const MAX_CHALLENGES_PER_IP = 5;
 const VOLUME_GROW_RETRY_MS = 15_000;
 const VOLUME_GROW_MAX_MS = 30 * 60_000;
+
+function volumeGrowExpired(at: number, now: number): boolean {
+  return now - at > VOLUME_GROW_MAX_MS;
+}
+const GROW_VOLUME_ID_CAPABILITY = "grow_volume_id";
+const VOLUME_ATTACH_SKEW_MS = 60_000;
+const VOLUME_RECONCILE_PROBE_MS = 30_000;
+const VOLUME_RECONCILE_RETRY_MS = 600_000;
+const VOLUME_RECONCILE_PERIODIC_MS = 15 * 60 * 1000;
+const MAX_VOLUME_OPS = 2;
+const MAX_BACKGROUND_RECONCILES = 1;
 const TLS_RETRY_BACKOFF_MS = 60_000;
 const DEFAULT_PROD_TLS_DOMAINS = [
   "*.terrascale.tech",
@@ -220,6 +234,8 @@ type NodeRow = {
   disk_total_gib: number;
   labels_json: string;
   volumes_json: string;
+  volumes_verified: number;
+  volumes_verified_at: number;
   token_hash: string | null;
   status: string;
   drain_requested: number;
@@ -341,6 +357,38 @@ interface Attachment {
   nodeId: string;
   region: string;
   poolKind: PoolKind;
+  sessionId: string;
+  volumesVerified: boolean;
+  growVolumeId: boolean;
+  lastVolumeSeq: number;
+  volumeReconcileScheduled: boolean;
+}
+
+type SessionVolumeState = Pick<Attachment, "volumesVerified" | "growVolumeId" | "lastVolumeSeq" | "volumeReconcileScheduled">;
+
+function sessionVerified(ws: WebSocket): boolean {
+  const attachment = ws.deserializeAttachment() as Attachment | null;
+  return ws.readyState === WebSocket.OPEN && attachment?.volumesVerified === true && attachment.growVolumeId === true;
+}
+
+function updateSessionVolumes(ws: WebSocket, attachment: Attachment, change: Partial<SessionVolumeState>): void {
+  const current = ws.deserializeAttachment() as Attachment | null;
+  Object.assign(attachment, change);
+  if (current !== null) ws.serializeAttachment({ ...current, ...change });
+}
+
+function markSessionVolumes(ws: WebSocket, attachment: Attachment, verified: boolean): void {
+  if ((ws.deserializeAttachment() as Attachment | null)?.volumesVerified === verified) return;
+  updateSessionVolumes(ws, attachment, { volumesVerified: verified });
+}
+
+function acceptVolumeSeq(ws: WebSocket, attachment: Attachment, volumeSeq: unknown): boolean {
+  const current = ws.deserializeAttachment() as Attachment | null;
+  if (current === null) return false;
+  if (volumeSeq === undefined && !current.growVolumeId) return true;
+  if (typeof volumeSeq !== "number" || !Number.isSafeInteger(volumeSeq) || volumeSeq <= current.lastVolumeSeq) return false;
+  updateSessionVolumes(ws, attachment, { lastVolumeSeq: volumeSeq });
+  return true;
 }
 
 interface ChaosState {
@@ -568,19 +616,160 @@ async function nodeIdFor(instanceId: string, region: string, poolKind: string): 
   return `${region}-${poolKind === "stateful" ? "s" : "w"}-${(await sha256Hex(instanceId)).slice(0, 10)}`;
 }
 
+function withVolumeUsage(volumesJson: string, poolKind: string, usedPct: number): string {
+  const volumes = parseJson<VolumeInfo[]>(volumesJson, []);
+  let found = false;
+  for (const volume of volumes) {
+    if (volume.mountPath === DATA_VOLUME_PATH) {
+      volume.usedPct = usedPct;
+      found = true;
+    }
+  }
+  if (!found && poolKind === "stateful") {
+    volumes.push({ mountPath: DATA_VOLUME_PATH, device: "/dev/oracleoci/oraclevdb", sizeGiB: 50, usedPct });
+  }
+  return JSON.stringify(volumes);
+}
+
 function reportedVolumes(value: unknown): string | null {
   if (!Array.isArray(value)) return null;
   const volumes: VolumeInfo[] = [];
   for (const entry of value) {
     if (!isRecord(entry) || typeof entry.mountPath !== "string" || typeof entry.device !== "string") continue;
+    const { identity } = entry;
     volumes.push({
       mountPath: entry.mountPath,
       device: entry.device,
       sizeGiB: finite(entry.sizeGiB),
       usedPct: finite(entry.usedPct),
+      ...(typeof identity === "string" && identity.trim().length > 0 ? { identity } : {}),
     });
   }
   return JSON.stringify(volumes);
+}
+
+function sameVolume(live: VolumeInfo, target: VolumeGrowTarget): boolean {
+  return (
+    hasStableVolumeIdentity(live.identity) &&
+    live.mountPath === target.mountPath &&
+    live.device === target.device &&
+    live.identity === target.identity
+  );
+}
+
+type PendingVolumeGrow = {
+  at: number;
+  lastAttemptAt: number;
+  previousSizeGiB: number;
+  newSizeGiB: number;
+  reason: string;
+  volumeId: string;
+  attachmentId: string;
+  tokenHash: string | null;
+  target: VolumeGrowTarget;
+};
+
+interface VolumeReconcileMarker {
+  nextAt: number;
+}
+
+function measuredGiB(sizeGiB: unknown): sizeGiB is number {
+  return typeof sizeGiB === "number" && Number.isFinite(sizeGiB) && sizeGiB > 0;
+}
+
+type VolumeResizeTarget = { targetSizeGiB: number; expiresAt: number };
+
+function volumeResizeTarget(value: unknown): VolumeResizeTarget | null {
+  if (!isRecord(value) || typeof value.targetSizeGiB !== "number" || typeof value.expiresAt !== "number") return null;
+  return { targetSizeGiB: value.targetSizeGiB, expiresAt: value.expiresAt };
+}
+
+function volumeReconcileMarker(value: unknown): VolumeReconcileMarker {
+  return { nextAt: isRecord(value) && typeof value.nextAt === "number" ? value.nextAt : 0 };
+}
+
+function pendingVolumeGrow(value: unknown): PendingVolumeGrow | null {
+  if (!isRecord(value) || !isRecord(value.target)) return null;
+  const { target } = value;
+  if (typeof target.mountPath !== "string" || typeof target.device !== "string" || !hasStableVolumeIdentity(target.identity)) return null;
+  if (
+    typeof value.at !== "number" ||
+    typeof value.lastAttemptAt !== "number" ||
+    typeof value.previousSizeGiB !== "number" ||
+    typeof value.newSizeGiB !== "number" ||
+    typeof value.reason !== "string" ||
+    typeof value.volumeId !== "string" ||
+    typeof value.attachmentId !== "string" ||
+    value.attachmentId.length === 0 ||
+    (value.tokenHash !== null && typeof value.tokenHash !== "string")
+  ) {
+    return null;
+  }
+  return {
+    at: value.at,
+    lastAttemptAt: value.lastAttemptAt,
+    previousSizeGiB: value.previousSizeGiB,
+    newSizeGiB: value.newSizeGiB,
+    reason: value.reason,
+    volumeId: value.volumeId,
+    attachmentId: value.attachmentId,
+    tokenHash: value.tokenHash,
+    target: { mountPath: target.mountPath, device: target.device, identity: target.identity },
+  };
+}
+
+type AttachedVolume = { attachmentId: string; id: string; device: string; sizeGiB: number; attachedAt: number };
+
+type VolumeBindingRecord = { attachmentId: string; volumeId: string; device: string; identity: string };
+
+type VolumeBindingChallenge = VolumeBindingRecord & { mountPath: string; challenge: string; sessionId: string; volumeSeq: number; ociSizeGiB: number };
+
+function volumeBindingRecord(value: unknown): VolumeBindingRecord | null {
+  if (!isRecord(value) || typeof value.attachmentId !== "string" || typeof value.volumeId !== "string" ||
+    typeof value.device !== "string" || !hasStableVolumeIdentity(value.identity)) return null;
+  return { attachmentId: value.attachmentId, volumeId: value.volumeId, device: value.device, identity: value.identity };
+}
+
+function volumeBindingChallenge(value: unknown): VolumeBindingChallenge | null {
+  const record = volumeBindingRecord(value);
+  if (record === null || !isRecord(value) || typeof value.mountPath !== "string" || value.mountPath.length === 0 ||
+    typeof value.challenge !== "string" || value.challenge.length === 0 ||
+    typeof value.sessionId !== "string" || value.sessionId.length === 0 ||
+    typeof value.volumeSeq !== "number" || !Number.isSafeInteger(value.volumeSeq) ||
+    typeof value.ociSizeGiB !== "number" || !Number.isFinite(value.ociSizeGiB)) return null;
+  return { ...record, mountPath: value.mountPath, challenge: value.challenge, sessionId: value.sessionId, volumeSeq: value.volumeSeq, ociSizeGiB: value.ociSizeGiB };
+}
+
+function sameBinding(left: VolumeBindingRecord, right: VolumeBindingRecord): boolean {
+  return left.attachmentId === right.attachmentId && left.volumeId === right.volumeId &&
+    left.device === right.device && left.identity === right.identity;
+}
+
+type VolumeBindingCheck = "bound" | "stale" | "conflict";
+
+function sameAttachedVolume(left: VolumeBindingRecord, right: VolumeBindingRecord): boolean {
+  return left.volumeId === right.volumeId && left.device === right.device && left.identity === right.identity;
+}
+
+type DataVolumeLookup =
+  | { kind: "unavailable" }
+  | { kind: "stale" }
+  | { kind: "found"; volume: OciDataVolume; instanceId: string; bound: { row: NodeRow; target: VolumeInfo }; guestSizeGiB: number };
+
+type FoundDataVolume = Extract<DataVolumeLookup, { kind: "found" }>;
+
+function guestBehindOci(guestSizeGiB: number, volume: OciDataVolume): boolean {
+  return guestSizeGiB > 0 && !volumeReachedTarget(guestSizeGiB, volume.sizeGiB);
+}
+
+function growVolumeCommand({ volumeId, target }: PendingVolumeGrow): BackplaneMessage {
+  return {
+    type: "grow_volume",
+    mountPath: target.mountPath,
+    volumeId,
+    device: target.device,
+    volumeIdentity: target.identity,
+  };
 }
 
 function metricsBucket(ts: number): number {
@@ -903,6 +1092,12 @@ export class FleetDO extends DurableObject<Env> {
   private readonly reapingInstances = new Set<string>();
   private readonly workerJoins = new Map<string, number>();
   private readonly poolAbortControllers = new Map<string, AbortController>();
+  private readonly volumeOperations = new Set<string>();
+  private readonly volumeReconciles = new Set<string>();
+  private readonly backgroundVolumeReconciles = new Set<string>();
+  private volumeGrowDeferred = false;
+  private readonly deferredGrowNodes = new Set<string>();
+  private readonly lastVolumeOpAttempt = new Map<string, number>();
   private ociClient: Promise<OciRestClient | null> | undefined;
   private tlsEnsureInFlight: Promise<unknown> | undefined;
   private nodeSyncPending = Promise.resolve();
@@ -921,7 +1116,7 @@ export class FleetDO extends DurableObject<Env> {
   private migrate(): void {
     const statements = [
       "CREATE TABLE IF NOT EXISTS regions (label TEXT PRIMARY KEY, oci_region TEXT NOT NULL, compartment_id TEXT NOT NULL, instance_pool_id TEXT, min_workers INTEGER NOT NULL DEFAULT 0, max_workers INTEGER NOT NULL DEFAULT 0, rollout_order INTEGER NOT NULL DEFAULT 0, config_json TEXT NOT NULL, updated_at INTEGER NOT NULL)",
-      "CREATE TABLE IF NOT EXISTS nodes (id TEXT PRIMARY KEY, region TEXT NOT NULL, pool_kind TEXT NOT NULL, vcn_ip TEXT NOT NULL DEFAULT '', netbird_ip TEXT, arch TEXT NOT NULL DEFAULT 'arm64', shape TEXT NOT NULL DEFAULT '', fault_domain TEXT NOT NULL DEFAULT '', cpu_total_m INTEGER NOT NULL DEFAULT 0, mem_total_mib INTEGER NOT NULL DEFAULT 0, disk_total_gib INTEGER NOT NULL DEFAULT 0, labels_json TEXT NOT NULL DEFAULT '{}', volumes_json TEXT NOT NULL DEFAULT '[]', token_hash TEXT, status TEXT NOT NULL DEFAULT 'pending', drain_requested INTEGER NOT NULL DEFAULT 0, drain_reason TEXT, last_seen_at INTEGER NOT NULL DEFAULT 0, last_heartbeat_at INTEGER NOT NULL DEFAULT 0, agent_version TEXT NOT NULL DEFAULT '', enrolled_at INTEGER NOT NULL DEFAULT 0)",
+      "CREATE TABLE IF NOT EXISTS nodes (id TEXT PRIMARY KEY, region TEXT NOT NULL, pool_kind TEXT NOT NULL, vcn_ip TEXT NOT NULL DEFAULT '', netbird_ip TEXT, arch TEXT NOT NULL DEFAULT 'arm64', shape TEXT NOT NULL DEFAULT '', fault_domain TEXT NOT NULL DEFAULT '', cpu_total_m INTEGER NOT NULL DEFAULT 0, mem_total_mib INTEGER NOT NULL DEFAULT 0, disk_total_gib INTEGER NOT NULL DEFAULT 0, labels_json TEXT NOT NULL DEFAULT '{}', volumes_json TEXT NOT NULL DEFAULT '[]', volumes_verified INTEGER NOT NULL DEFAULT 0, volumes_verified_at INTEGER NOT NULL DEFAULT 0, token_hash TEXT, status TEXT NOT NULL DEFAULT 'pending', drain_requested INTEGER NOT NULL DEFAULT 0, drain_reason TEXT, last_seen_at INTEGER NOT NULL DEFAULT 0, last_heartbeat_at INTEGER NOT NULL DEFAULT 0, agent_version TEXT NOT NULL DEFAULT '', enrolled_at INTEGER NOT NULL DEFAULT 0)",
       "CREATE TABLE IF NOT EXISTS services (name TEXT PRIMARY KEY, mode TEXT NOT NULL, priority TEXT NOT NULL, image TEXT NOT NULL, spec_json TEXT NOT NULL, config_version INTEGER NOT NULL DEFAULT 1, updated_at INTEGER NOT NULL)",
       "CREATE TABLE IF NOT EXISTS placements (id TEXT PRIMARY KEY, service_name TEXT NOT NULL, region TEXT NOT NULL, node_id TEXT, slot INTEGER NOT NULL, desired_image TEXT NOT NULL, desired_config_hash TEXT, active_image TEXT, active_config_hash TEXT, host_port INTEGER, postgres_host_port INTEGER, internal_host_port INTEGER, candidate_image TEXT, candidate_error TEXT, state TEXT NOT NULL, error TEXT, updated_at INTEGER NOT NULL)",
       "CREATE INDEX IF NOT EXISTS placements_node ON placements (node_id)",
@@ -948,6 +1143,12 @@ export class FleetDO extends DurableObject<Env> {
     }
     if (!nodeColumns.some((column) => column.name === "last_heartbeat_at")) {
       this.sql.exec("ALTER TABLE nodes ADD COLUMN last_heartbeat_at INTEGER NOT NULL DEFAULT 0");
+    }
+    if (!nodeColumns.some((column) => column.name === "volumes_verified")) {
+      this.sql.exec("ALTER TABLE nodes ADD COLUMN volumes_verified INTEGER NOT NULL DEFAULT 0");
+    }
+    if (!nodeColumns.some((column) => column.name === "volumes_verified_at")) {
+      this.sql.exec("ALTER TABLE nodes ADD COLUMN volumes_verified_at INTEGER NOT NULL DEFAULT 0");
     }
     if (!nodeColumns.some((column) => column.name === "enrolled_at")) {
       this.sql.exec("ALTER TABLE nodes ADD COLUMN enrolled_at INTEGER NOT NULL DEFAULT 0");
@@ -1202,6 +1403,14 @@ export class FleetDO extends DurableObject<Env> {
     return this.sockets(nodeId).length > 0;
   }
 
+  private volumeSockets(nodeId: string): WebSocket[] {
+    return this.sockets(nodeId).filter(sessionVerified);
+  }
+
+  private hasVolumeSession(nodeId: string): boolean {
+    return this.volumeSockets(nodeId).length > 0;
+  }
+
   private send(nodeId: string, message: BackplaneMessage, sockets = this.sockets(nodeId)): number {
     const payload = JSON.stringify(message);
     let sent = 0;
@@ -1243,13 +1452,22 @@ export class FleetDO extends DurableObject<Env> {
         .exec<CountRow>("SELECT COUNT(*) AS count FROM rollouts WHERE state NOT IN ('succeeded', 'rolled_back', 'failed')")
         .toArray()[0]?.count ?? 0;
     const regions = this.sql.exec<CountRow>("SELECT COUNT(*) AS count FROM regions").toArray()[0]?.count ?? 0;
-    if (bakeDeadline !== null) {
-      await this.ctx.storage.setAlarm(Math.min(bakeDeadline, now + ALARM_INTERVAL_MS));
-    } else if (nodes > 0 || rollouts > 0 || this.logStreams.size > 0) {
-      await this.ctx.storage.setAlarm(now + ALARM_INTERVAL_MS);
-    } else if (regions > 0) {
-      await this.ctx.storage.setAlarm(now + IDLE_ALARM_INTERVAL_MS);
+    let targetAt: number | null = null;
+    if (bakeDeadline !== null) targetAt = Math.min(bakeDeadline, now + ALARM_INTERVAL_MS);
+    else if (nodes > 0 || rollouts > 0 || this.logStreams.size > 0) targetAt = now + ALARM_INTERVAL_MS;
+    else if (regions > 0) targetAt = now + IDLE_ALARM_INTERVAL_MS;
+    const freeVolumeSlots = Math.min(MAX_BACKGROUND_RECONCILES - this.backgroundVolumeReconciles.size, MAX_VOLUME_OPS - this.volumeReconciles.size);
+    const urgentVolumeWork = (this.volumeGrowDeferred && this.volumeReconciles.size < MAX_VOLUME_OPS) ||
+      (freeVolumeSlots > 0 && this.dueVolumeReconciles(now).length > 0);
+    if (this.deferredGrowNodes.size > 0 && this.takeDeferredGrows(this.deferredGrowNodes, now)) {
+      this.setState("autoscale_at", 0);
+      targetAt = Math.min(targetAt ?? Number.POSITIVE_INFINITY, now + 1_000);
     }
+    if (urgentVolumeWork) targetAt = Math.min(targetAt ?? Number.POSITIVE_INFINITY, now + 1_000);
+    if (targetAt === null) return;
+    const existing = await this.ctx.storage.getAlarm();
+    if (existing !== null && existing > now && existing < targetAt) return;
+    await this.ctx.storage.setAlarm(targetAt);
   }
 
   override async fetch(request: Request): Promise<Response> {
@@ -1546,11 +1764,22 @@ export class FleetDO extends DurableObject<Env> {
     }
     if (this.nodeBlocked(current, Date.now())) throw terminating();
     for (const ws of this.sockets(row.id)) this.closeSocket(ws, 4001, "replaced");
+    this.sql.exec("UPDATE nodes SET volumes_verified = 0 WHERE id = ?", row.id);
+    this.deleteState(`volume_binding_pending:${row.id}`);
     const pair = new WebSocketPair();
     const client = pair[0];
     const server = pair[1];
     this.ctx.acceptWebSocket(server, [row.id, `region:${row.region}`]);
-    const attachment: Attachment = { nodeId: row.id, region: row.region, poolKind: row.pool_kind as PoolKind };
+    const attachment: Attachment = {
+      nodeId: row.id,
+      region: row.region,
+      poolKind: row.pool_kind as PoolKind,
+      sessionId: crypto.randomUUID(),
+      volumesVerified: false,
+      growVolumeId: false,
+      lastVolumeSeq: 0,
+      volumeReconcileScheduled: false,
+    };
     server.serializeAttachment(attachment);
     await this.ensureAlarm(ALARM_INTERVAL_MS);
     return new Response(null, { status: 101, webSocket: client });
@@ -1562,6 +1791,7 @@ export class FleetDO extends DurableObject<Env> {
       this.closeSocket(ws, 4003, "unidentified");
       return;
     }
+    if (ws.readyState !== WebSocket.OPEN) return;
     if (typeof message !== "string" || message.length > MAX_EXEC_RESULT_FRAME_BYTES) return;
     const execResult = /^\{\s*"type"\s*:\s*"exec_result"\s*[,}]/.test(message.slice(0, 128));
     if (message.length > MAX_NODE_FRAME_BYTES && !execResult) return;
@@ -1593,7 +1823,7 @@ export class FleetDO extends DurableObject<Env> {
           await this.onHello(ws, attachment, parsed, now);
           break;
         case "heartbeat":
-          await this.onHeartbeat(attachment, parsed, now);
+          await this.onHeartbeat(ws, attachment, parsed, now);
           break;
         case "placement_event": {
           const report: PlacementReport = {
@@ -1620,7 +1850,7 @@ export class FleetDO extends DurableObject<Env> {
           await this.onDrainComplete(attachment, now);
           break;
         case "volume_grown":
-          this.onVolumeGrown(attachment, parsed.volumePath, parsed.newSizeGiB);
+          this.onVolumeGrown(attachment, parsed.volumePath, parsed.newSizeGiB, parsed.volumeId);
           break;
         case "log_chunk":
           this.onLogChunk(attachment.nodeId, parsed.requestId, parsed.stream, parsed.line);
@@ -1644,13 +1874,25 @@ export class FleetDO extends DurableObject<Env> {
   override async webSocketClose(ws: WebSocket, code: number, reason: string, _wasClean: boolean): Promise<void> {
     this.closeSocket(ws, code === 1005 || code === 1006 || code === 1015 ? 1000 : code, reason);
     const attachment = ws.deserializeAttachment() as Attachment | null;
-    if (attachment !== null) this.detachNodeStreams(attachment.nodeId, ws);
+    if (attachment === null) return;
+    this.releaseVolumeSession(attachment.nodeId, ws);
+    this.detachNodeStreams(attachment.nodeId, ws);
   }
 
   override async webSocketError(ws: WebSocket, error: unknown): Promise<void> {
     console.error("websocket error", error);
     const attachment = ws.deserializeAttachment() as Attachment | null;
-    if (attachment !== null) this.detachNodeStreams(attachment.nodeId, ws);
+    if (attachment === null) return;
+    this.releaseVolumeSession(attachment.nodeId, ws);
+    this.detachNodeStreams(attachment.nodeId, ws);
+  }
+
+  private releaseVolumeSession(nodeId: string, closing: WebSocket): void {
+    const closingSession = (closing.deserializeAttachment() as Attachment | null)?.sessionId;
+    const pendingKey = `volume_binding_pending:${nodeId}`;
+    if (volumeBindingChallenge(this.getState<unknown>(pendingKey))?.sessionId === closingSession) this.deleteState(pendingKey);
+    if (this.volumeSockets(nodeId).some((ws) => ws !== closing)) return;
+    this.sql.exec("UPDATE nodes SET volumes_verified = 0 WHERE id = ? AND volumes_verified <> 0", nodeId);
   }
 
   private detachNodeStreams(nodeId: string, closing: WebSocket): void {
@@ -1700,8 +1942,11 @@ export class FleetDO extends DurableObject<Env> {
     const previous = row.status;
     const status = this.liveStatus(row);
     const netbirdIp = typeof hello.netbirdIp === "string" && hello.netbirdIp.length > 0 ? hello.netbirdIp : row.netbird_ip;
+    const growVolumeId = Array.isArray(hello.capabilities) && hello.capabilities.includes(GROW_VOLUME_ID_CAPABILITY);
+    updateSessionVolumes(ws, attachment, { growVolumeId });
+    const helloVolumes = acceptVolumeSeq(ws, attachment, hello.volumeSeq) ? reportedVolumes(hello.volumes) : null;
     this.sql.exec(
-      "UPDATE nodes SET netbird_ip = ?, arch = ?, shape = ?, fault_domain = ?, cpu_total_m = ?, mem_total_mib = ?, disk_total_gib = ?, labels_json = ?, volumes_json = ?, agent_version = ?, status = ?, last_seen_at = ? WHERE id = ?",
+      "UPDATE nodes SET netbird_ip = ?, arch = ?, shape = ?, fault_domain = ?, cpu_total_m = ?, mem_total_mib = ?, disk_total_gib = ?, labels_json = ?, volumes_json = ?, volumes_verified = ?, volumes_verified_at = ?, agent_version = ?, status = ?, last_seen_at = ? WHERE id = ?",
       netbirdIp,
       hello.arch === "x64" ? "x64" : "arm64",
       String(hello.shape ?? ""),
@@ -1710,12 +1955,16 @@ export class FleetDO extends DurableObject<Env> {
       Math.max(0, Math.floor(finite(hello.memTotalMiB))),
       Math.max(0, Math.floor(finite(hello.diskTotalGiB))),
       JSON.stringify(labels),
-      reportedVolumes(hello.volumes) ?? row.volumes_json,
+      helloVolumes ?? row.volumes_json,
+      helloVolumes === null ? 0 : 1,
+      helloVolumes === null ? row.volumes_verified_at : now,
       String(hello.agentVersion ?? ""),
       status,
       now,
       attachment.nodeId,
     );
+    markSessionVolumes(ws, attachment, helloVolumes !== null);
+    this.scheduleSessionVolumeReconcile(ws, attachment, helloVolumes);
     if (hello.region !== attachment.region || hello.poolKind !== attachment.poolKind) {
       console.warn("hello region/pool mismatch ignored", attachment.nodeId, hello.region, hello.poolKind);
     }
@@ -1725,7 +1974,7 @@ export class FleetDO extends DurableObject<Env> {
     this.deleteState(`sent_routes:${attachment.nodeId}`);
     if (status === "draining") this.send(attachment.nodeId, { type: "drain", reason: row.drain_reason ?? "draining" });
     await this.reconcile(now);
-    this.replayVolumeGrow(attachment.nodeId);
+    this.resumeVolumeGrow(attachment.nodeId, false);
     const tls = await this.loadTls();
     if (tls !== null) this.sendTls(attachment.nodeId, tls);
     await this.publishTopology(now, false);
@@ -1810,10 +2059,24 @@ export class FleetDO extends DurableObject<Env> {
     return { containers, edge };
   }
 
-  private async onHeartbeat(attachment: Attachment, heartbeat: HeartbeatMessage, now: number): Promise<void> {
+  private async onHeartbeat(ws: WebSocket, attachment: Attachment, heartbeat: HeartbeatMessage, now: number): Promise<void> {
     const row = this.loadNodeRow(attachment.nodeId);
-    if (row === undefined) return;
+    if (row === undefined || !acceptVolumeSeq(ws, attachment, heartbeat.volumeSeq)) return;
     const throttled = now - row.last_heartbeat_at < MIN_HEARTBEAT_INTERVAL_MS;
+    const chaosDisk = this.chaosState(now).disk[attachment.nodeId];
+    const reported = reportedVolumes(heartbeat.volumes);
+    const heartbeatVolumes =
+      reported === null || chaosDisk === undefined ? reported : withVolumeUsage(reported, row.pool_kind, chaosDisk.usedPct);
+    markSessionVolumes(ws, attachment, heartbeatVolumes !== null);
+    this.scheduleSessionVolumeReconcile(ws, attachment, heartbeatVolumes);
+    if (typeof heartbeat.volumeChallenge === "string") {
+      this.promoteVolumeBinding(ws, attachment, heartbeat.volumeChallenge, heartbeat.volumeSeq, reported);
+    }
+    if (throttled && heartbeatVolumes !== null) {
+      this.sql.exec("UPDATE nodes SET volumes_json = ?, volumes_verified = 1, volumes_verified_at = ? WHERE id = ?", heartbeatVolumes, now, attachment.nodeId);
+    } else if (throttled && row.volumes_verified !== 0) {
+      this.sql.exec("UPDATE nodes SET volumes_verified = 0 WHERE id = ?", attachment.nodeId);
+    }
     const rolloutPlacements = throttled ? this.activeRolloutPlacements(row.id) : null;
     if (rolloutPlacements?.size === 0) return;
 
@@ -1825,12 +2088,14 @@ export class FleetDO extends DurableObject<Env> {
         typeof heartbeat.netbirdIp === "string" && heartbeat.netbirdIp.length > 0 ? heartbeat.netbirdIp : row.netbird_ip;
       netbirdChanged = nextNetbirdIp !== row.netbird_ip;
       this.sql.exec(
-        "UPDATE nodes SET last_seen_at = ?, last_heartbeat_at = ?, status = ?, netbird_ip = ?, volumes_json = ? WHERE id = ?",
+        "UPDATE nodes SET last_seen_at = ?, last_heartbeat_at = ?, status = ?, netbird_ip = ?, volumes_json = ?, volumes_verified = ?, volumes_verified_at = ? WHERE id = ?",
         now,
         now,
         status,
         nextNetbirdIp,
-        reportedVolumes(heartbeat.volumes) ?? row.volumes_json,
+        heartbeatVolumes ?? row.volumes_json,
+        heartbeatVolumes === null ? 0 : 1,
+        heartbeatVolumes === null ? row.volumes_verified_at : now,
         attachment.nodeId,
       );
       if (attachment.poolKind === "worker" && row.status === "pending" && status === "active") this.recordWorkerJoin(attachment.region);
@@ -1847,8 +2112,7 @@ export class FleetDO extends DurableObject<Env> {
     let edge: NodeEdgeMetrics | undefined;
     if (!throttled) {
       if (isRecord(heartbeat.hostMetrics)) this.storeMetrics(attachment, heartbeat, now);
-      const chaosDisk = this.chaosState(now).disk[attachment.nodeId];
-      if (chaosDisk !== undefined) this.setVolumeUsage(attachment.nodeId, chaosDisk.usedPct);
+      if (chaosDisk !== undefined && heartbeatVolumes === null) this.setVolumeUsage(attachment.nodeId, chaosDisk.usedPct);
     } else if (isRecord(heartbeat.hostMetrics)) {
       edge = this.nodeEdgeMetrics(this.applyChaos(attachment.nodeId, heartbeat, now).edge, now);
     }
@@ -1883,21 +2147,77 @@ export class FleetDO extends DurableObject<Env> {
     );
   }
 
+  private verifiedTargetVolume(nodeId: string, tokenHash: string | null, target: VolumeGrowTarget): { row: NodeRow; target: VolumeInfo } | undefined {
+    const row = this.loadNodeRow(nodeId);
+    if (row === undefined || row.token_hash !== tokenHash || row.status === "down" || row.volumes_verified !== 1) return undefined;
+    if (!this.hasVolumeSession(nodeId)) return undefined;
+    const live = parseJson<VolumeInfo[]>(row.volumes_json, []).find((info) => sameVolume(info, target));
+    return live === undefined ? undefined : { row, target: live };
+  }
+
+  private volumeBinding(nodeId: string, bound: { row: NodeRow; target: VolumeInfo }, volume: AttachedVolume, target: VolumeGrowTarget): VolumeBindingCheck {
+    if (volume.device !== target.device) return "conflict";
+    const { row } = bound;
+    if (row.volumes_verified !== 1 || row.volumes_verified_at - VOLUME_ATTACH_SKEW_MS <= volume.attachedAt) return "stale";
+    if (!measuredGiB(bound.target.sizeGiB)) return "stale";
+    if (bound.target.sizeGiB > volume.sizeGiB) return "conflict";
+    const observed: VolumeBindingRecord = { attachmentId: volume.attachmentId, volumeId: volume.id, device: volume.device, identity: target.identity };
+    const key = `volume_binding:${nodeId}`;
+    const stored = this.getState<unknown>(key);
+    if (stored !== null) {
+      const binding = volumeBindingRecord(stored);
+      if (binding === null || !sameAttachedVolume(binding, observed)) return "conflict";
+      if (sameBinding(binding, observed)) return "bound";
+    }
+    const [session] = this.volumeSockets(nodeId);
+    const sessionAttachment = session?.deserializeAttachment() as Attachment | null | undefined;
+    if (session === undefined || typeof sessionAttachment?.sessionId !== "string") return "stale";
+    const { sessionId, lastVolumeSeq } = sessionAttachment;
+    const pendingKey = `volume_binding_pending:${nodeId}`;
+    const pending = volumeBindingChallenge(this.getState<unknown>(pendingKey));
+    const reusable = pending !== null && pending.sessionId === sessionId && pending.mountPath === target.mountPath &&
+      pending.ociSizeGiB === volume.sizeGiB && sameBinding(pending, observed);
+    const challenge = reusable ? pending.challenge : crypto.randomUUID();
+    if (!reusable) {
+      const issued: VolumeBindingChallenge = { ...observed, mountPath: target.mountPath, challenge, sessionId, volumeSeq: lastVolumeSeq, ociSizeGiB: volume.sizeGiB };
+      this.setState(pendingKey, issued);
+    }
+    this.send(nodeId, { type: "probe_volumes", challenge }, [session]);
+    return "stale";
+  }
+
+  private promoteVolumeBinding(ws: WebSocket, attachment: Attachment, challenge: string, volumeSeq: number, volumesJson: string | null): void {
+    const pendingKey = `volume_binding_pending:${attachment.nodeId}`;
+    const pending = volumeBindingChallenge(this.getState<unknown>(pendingKey));
+    if (pending === null || volumesJson === null || !sessionVerified(ws) || this.volumeOperations.has(attachment.nodeId)) return;
+    if (pending.sessionId !== attachment.sessionId || pending.challenge !== challenge || !(volumeSeq > pending.volumeSeq)) return;
+    const probed = parseJson<VolumeInfo[]>(volumesJson, []).some(
+      (volume) =>
+        hasStableVolumeIdentity(volume.identity) &&
+        volume.mountPath === pending.mountPath &&
+        volume.device === pending.device &&
+        volume.identity === pending.identity &&
+        measuredGiB(volume.sizeGiB) &&
+        volume.sizeGiB <= pending.ociSizeGiB,
+    );
+    if (!probed) return;
+    const key = `volume_binding:${attachment.nodeId}`;
+    const stored = this.getState<unknown>(key);
+    const binding = stored === null ? null : volumeBindingRecord(stored);
+    if (stored === null || (binding !== null && sameAttachedVolume(binding, pending))) {
+      this.setState(key, { attachmentId: pending.attachmentId, volumeId: pending.volumeId, device: pending.device, identity: pending.identity });
+    }
+    this.deleteState(pendingKey);
+  }
+
   private setVolumeUsage(nodeId: string, usedPct: number): void {
     const row = this.loadNodeRow(nodeId);
     if (row === undefined) return;
-    const volumes = parseJson<VolumeInfo[]>(row.volumes_json, []);
-    let found = false;
-    for (const volume of volumes) {
-      if (volume.mountPath === DATA_VOLUME_PATH) {
-        volume.usedPct = usedPct;
-        found = true;
-      }
-    }
-    if (!found && row.pool_kind === "stateful") {
-      volumes.push({ mountPath: DATA_VOLUME_PATH, device: "/dev/oracleoci/oraclevdb", sizeGiB: 50, usedPct });
-    }
-    this.sql.exec("UPDATE nodes SET volumes_json = ? WHERE id = ?", JSON.stringify(volumes), nodeId);
+    this.sql.exec(
+      "UPDATE nodes SET volumes_json = ?, volumes_verified = 1 WHERE id = ?",
+      withVolumeUsage(row.volumes_json, row.pool_kind, usedPct),
+      nodeId,
+    );
   }
 
   private backfillDiskHistory(nodeId: string, usedPct: number, now: number): void {
@@ -2139,62 +2459,141 @@ export class FleetDO extends DurableObject<Env> {
     await this.reconcile(now);
   }
 
-  private onVolumeGrown(attachment: Attachment, volumePath: string, newSizeGiB: number): void {
-    if (typeof newSizeGiB !== "number" || !Number.isFinite(newSizeGiB) || newSizeGiB <= 0) return;
-    const row = this.loadNodeRow(attachment.nodeId);
-    if (row === undefined) return;
-    const volumes = parseJson<VolumeInfo[]>(row.volumes_json, []);
+  private scheduleSessionVolumeReconcile(ws: WebSocket, attachment: Attachment, volumesJson: string | null): void {
+    if (attachment.poolKind !== "stateful" || volumesJson === null || !attachment.growVolumeId || attachment.volumeReconcileScheduled) return;
+    const data = parseJson<VolumeInfo[]>(volumesJson, []).find((volume) => volume.mountPath === DATA_VOLUME_PATH);
+    if (data === undefined || volumeGrowTarget(data) === null) return;
+    this.scheduleVolumeReconcile(attachment.nodeId, 0);
+    updateSessionVolumes(ws, attachment, { volumeReconcileScheduled: true });
+  }
+
+  private expireVolumeGrow(nodeId: string): void {
+    this.deleteState(`volume_grow:${nodeId}`);
+    this.scheduleVolumeReconcile(nodeId, 0);
+  }
+
+  private clearPendingVolumeGrow(nodeId: string): void {
+    this.deleteState(`volume_grow:${nodeId}`);
+    const row = this.loadNodeRow(nodeId);
+    if (row === undefined || row.pool_kind !== "stateful" || row.status === "down" || row.volumes_verified !== 1 || !this.hasVolumeSession(nodeId)) return;
+    const periodicAt = Date.now() + VOLUME_RECONCILE_PERIODIC_MS;
+    const scheduled = this.getState<unknown>(`volume_reconcile:${nodeId}`);
+    if (scheduled === null || volumeReconcileMarker(scheduled).nextAt > periodicAt) this.scheduleVolumeReconcile(nodeId, periodicAt);
+  }
+
+  private loadVolumeReconcile(nodeId: string): VolumeReconcileMarker {
+    return volumeReconcileMarker(this.getState<unknown>(`volume_reconcile:${nodeId}`));
+  }
+
+  private loadVolumeResizeTarget(volumeId: string, now: number): VolumeResizeTarget | null {
+    const key = `volume_resize_target:${volumeId}`;
+    const stored = this.getState<unknown>(key);
+    if (stored === null) return null;
+    const target = volumeResizeTarget(stored);
+    if (target !== null && now < target.expiresAt) return target;
+    this.deleteState(key);
+    return null;
+  }
+
+  private reserveVolumeResizeTarget(volumeId: string, targetSizeGiB: number, expiresAt: number): void {
+    const existing = this.loadVolumeResizeTarget(volumeId, Date.now());
+    this.setState(`volume_resize_target:${volumeId}`, {
+      targetSizeGiB: Math.max(targetSizeGiB, existing?.targetSizeGiB ?? 0),
+      expiresAt: Math.max(expiresAt, existing?.expiresAt ?? 0),
+    });
+  }
+
+  private pruneVolumeResizeTargets(now: number): void {
+    const volumeIds = this.sql
+      .exec<{ key: string }>("SELECT key FROM kv_state WHERE key LIKE 'volume_resize_target:%'")
+      .toArray()
+      .map(({ key }) => key.slice("volume_resize_target:".length));
+    for (const volumeId of volumeIds) this.loadVolumeResizeTarget(volumeId, now);
+  }
+
+  private scheduleVolumeReconcile(nodeId: string, nextAt: number): void {
+    const marker: VolumeReconcileMarker = { nextAt };
+    this.setState(`volume_reconcile:${nodeId}`, marker);
+  }
+
+  private onVolumeGrown(attachment: Attachment, volumePath: unknown, newSizeGiB: unknown, volumeId: unknown): void {
+    if (typeof volumePath !== "string" || typeof newSizeGiB !== "number" || !Number.isFinite(newSizeGiB) || newSizeGiB <= 0) return;
+    if (typeof volumeId !== "string" || !attachment.volumesVerified || !attachment.growVolumeId) return;
+    const pending = this.loadPendingVolumeGrow(attachment.nodeId);
+    if (pending === null) return;
+    if (volumeGrowExpired(pending.at, Date.now())) {
+      this.expireVolumeGrow(attachment.nodeId);
+      return;
+    }
+    if (volumePath !== pending.target.mountPath || volumeId !== pending.volumeId) return;
+    const live = this.verifiedTargetVolume(attachment.nodeId, pending.tokenHash, pending.target);
+    if (live === undefined) return;
+    const volumes = parseJson<VolumeInfo[]>(live.row.volumes_json, []);
     let grew = false;
     for (const volume of volumes) {
-      if (volume.mountPath !== volumePath || newSizeGiB <= volume.sizeGiB) continue;
+      if (!sameVolume(volume, pending.target) || newSizeGiB <= volume.sizeGiB) continue;
       volume.sizeGiB = newSizeGiB;
       grew = true;
     }
     if (grew) this.sql.exec("UPDATE nodes SET volumes_json = ? WHERE id = ?", JSON.stringify(volumes), attachment.nodeId);
-    const pending = this.getState<{ mountPath?: string; newSizeGiB?: number; previousSizeGiB?: number; at?: number; lastSentAt?: number }>(
-      `volume_grow:${attachment.nodeId}`,
-    );
-    const expected = pending !== null && typeof pending.mountPath === "string" && pending.mountPath.length > 0 ? pending.mountPath : DATA_VOLUME_PATH;
-    const targetGiB = typeof pending?.newSizeGiB === "number" ? pending.newSizeGiB : 0;
-    const previousSizeGiB = typeof pending?.previousSizeGiB === "number" ? pending.previousSizeGiB : 0;
-    const cleared = pending !== null && volumePath === expected && volumeReachedTarget(newSizeGiB, targetGiB, previousSizeGiB);
-    if (cleared) this.deleteState(`volume_grow:${attachment.nodeId}`);
+    const cleared = volumeReachedTarget(newSizeGiB, pending.newSizeGiB, pending.previousSizeGiB);
+    if (cleared) this.clearPendingVolumeGrow(attachment.nodeId);
     if (grew || cleared) this.recordEvent("volume_grown", attachment.nodeId, { volumePath, newSizeGiB }, attachment.region);
   }
 
-  private replayVolumeGrow(nodeId: string): void {
-    const pending = this.getState<{ mountPath?: string }>(`volume_grow:${nodeId}`);
-    if (pending === null) return;
-    const mountPath = typeof pending.mountPath === "string" && pending.mountPath.length > 0 ? pending.mountPath : DATA_VOLUME_PATH;
-    this.send(nodeId, { type: "grow_volume", mountPath });
+  private loadPendingVolumeGrow(nodeId: string): PendingVolumeGrow | null {
+    const stored = this.sql.exec<StateRow>("SELECT value FROM kv_state WHERE key = ?", `volume_grow:${nodeId}`).toArray()[0];
+    if (stored === undefined) return null;
+    const pending = pendingVolumeGrow(parseJson<unknown>(stored.value, null));
+    if (pending === null) {
+      this.deleteState(`volume_grow:${nodeId}`);
+      this.scheduleVolumeReconcile(nodeId, 0);
+    }
+    return pending;
   }
 
-  private retryPendingVolumeGrows(now: number): void {
-    const rows = this.sql
-      .exec<{ key: string; value: string }>("SELECT key, value FROM kv_state WHERE key LIKE 'volume_grow:%'")
-      .toArray();
-    for (const row of rows) {
-      const nodeId = row.key.slice("volume_grow:".length);
-      const pending = parseJson<{ mountPath?: string; newSizeGiB?: number; at?: number; lastSentAt?: number; reason?: string } | null>(
-        row.value,
-        null,
-      );
-      if (pending === null) {
-        this.deleteState(row.key);
-        continue;
-      }
-      const startedAt = typeof pending.at === "number" ? pending.at : now;
-      if (now - startedAt > VOLUME_GROW_MAX_MS) {
-        this.deleteState(row.key);
-        continue;
-      }
-      const lastSentAt = typeof pending.lastSentAt === "number" ? pending.lastSentAt : startedAt;
-      if (now - lastSentAt < VOLUME_GROW_RETRY_MS || !this.connected(nodeId)) continue;
-      const mountPath = typeof pending.mountPath === "string" && pending.mountPath.length > 0 ? pending.mountPath : DATA_VOLUME_PATH;
-      if (this.send(nodeId, { type: "grow_volume", mountPath }) > 0) {
-        this.setState(row.key, { ...pending, lastSentAt: now });
-      }
+  private sendPendingVolumeGrow(nodeId: string, pending: PendingVolumeGrow): void {
+    const key = `volume_grow:${nodeId}`;
+    if (this.loadNodeRow(nodeId)?.token_hash !== pending.tokenHash) {
+      this.clearPendingVolumeGrow(nodeId);
+      return;
     }
+    if (volumeGrowExpired(pending.at, Date.now())) {
+      this.expireVolumeGrow(nodeId);
+      return;
+    }
+    if (this.verifiedTargetVolume(nodeId, pending.tokenHash, pending.target) === undefined) return;
+    const sockets = this.volumeSockets(nodeId);
+    if (sockets.length === 0) return;
+    const sentAt = Date.now();
+    if (volumeGrowExpired(pending.at, sentAt)) {
+      this.expireVolumeGrow(nodeId);
+      return;
+    }
+    if (this.send(nodeId, growVolumeCommand(pending), sockets) > 0) this.setState(key, { ...pending, lastAttemptAt: sentAt });
+  }
+
+  private resumeVolumeGrow(nodeId: string, throttled: boolean): void {
+    const pending = this.loadPendingVolumeGrow(nodeId);
+    if (pending === null) return;
+    const loadedAt = Date.now();
+    if (volumeGrowExpired(pending.at, loadedAt)) {
+      this.expireVolumeGrow(nodeId);
+      return;
+    }
+    if ((throttled && loadedAt - pending.lastAttemptAt < VOLUME_GROW_RETRY_MS) || !this.hasVolumeSession(nodeId)) return;
+    const deferredAt = this.loadVolumeReconcile(nodeId).nextAt;
+    if (throttled && deferredAt > loadedAt && deferredAt - loadedAt <= VOLUME_RECONCILE_PROBE_MS) return;
+    this.setState(`volume_grow:${nodeId}`, { ...pending, lastAttemptAt: loadedAt });
+    this.scheduleVolumeReconcile(nodeId, 0);
+  }
+
+  private retryPendingVolumeGrows(): void {
+    const nodeIds = this.sql
+      .exec<{ key: string }>("SELECT key FROM kv_state WHERE key LIKE 'volume_grow:%'")
+      .toArray()
+      .map(({ key }) => key.slice("volume_grow:".length));
+    for (const nodeId of nodeIds) this.resumeVolumeGrow(nodeId, true);
   }
 
   private replicaOverrides(): Record<string, number> {
@@ -2486,7 +2885,7 @@ export class FleetDO extends DurableObject<Env> {
       await this.runMaintenanceTask("rollups", () => this.flushStaleRollups(now));
       await this.runMaintenanceTask("reconcile", () => this.reconcile(now));
       await this.runMaintenanceTask("rollouts", () => this.advanceRollouts(now));
-      await this.runMaintenanceTask("pending_volume_grows", () => this.retryPendingVolumeGrows(now));
+      await this.runMaintenanceTask("pending_volume_grows", () => this.retryPendingVolumeGrows());
       this.ctx.waitUntil(this.runMaintenanceTask("tls", () => this.maybeAutoEnsureTls(now), "tls_error"));
       await Promise.all([
         this.runMaintenanceTask("autoscaler", () => this.runAutoscaler(now), "last_autoscale_error"),
@@ -2500,6 +2899,7 @@ export class FleetDO extends DurableObject<Env> {
         await this.ctx.storage.setAlarm(Date.now() + ALARM_INTERVAL_MS);
       }
     }
+    await this.runMaintenanceTask("volume_reconcile", () => this.startVolumeReconciles(Date.now()));
   }
 
   private markDownNodes(now: number): void {
@@ -2740,6 +3140,16 @@ export class FleetDO extends DurableObject<Env> {
     const metrics1m = this.metricsPoints1m(now - 3600_000);
     const poolIds = new Map<string, string>();
     for (const row of regionRows) if (row.instance_pool_id !== null && row.instance_pool_id.length > 0) poolIds.set(row.label, row.instance_pool_id);
+    const verifiedVolumeNodeIds = new Set(
+      this.sql
+        .exec<{ id: string; volumes_json: string }>("SELECT id, volumes_json FROM nodes WHERE volumes_verified = 1")
+        .toArray()
+        .filter(({ volumes_json }) =>
+          parseJson<VolumeInfo[]>(volumes_json, []).some((volume) => volume.mountPath === DATA_VOLUME_PATH && volumeGrowTarget(volume) !== null),
+        )
+        .map(({ id }) => id)
+        .filter((id) => this.hasVolumeSession(id)),
+    );
     const drainReasons = new Map<string, string>();
     for (const row of this.sql.exec<{ id: string; drain_reason: string | null }>("SELECT id, drain_reason FROM nodes WHERE drain_reason IS NOT NULL").toArray()) {
       if (row.drain_reason !== null) drainReasons.set(row.id, row.drain_reason);
@@ -2758,6 +3168,7 @@ export class FleetDO extends DurableObject<Env> {
         metrics1m,
         cooldowns,
         nowMs: now,
+        verifiedVolumeNodeIds,
         poolIds,
         drainReasons,
       });
@@ -2768,7 +3179,12 @@ export class FleetDO extends DurableObject<Env> {
     if (actions.length === 0) return;
     const oci = await this.oci();
     let reschedule = false;
-    for (const action of actions) {
+    const attempted = (nodeId: string): number => this.lastVolumeOpAttempt.get(nodeId) ?? 0;
+    const grows = actions
+      .filter((action): action is Extract<AutoscaleAction, { kind: "grow_volume" }> => action.kind === "grow_volume")
+      .sort((left, right) => attempted(left.nodeId) - attempted(right.nodeId));
+    let nextGrow = 0;
+    for (const action of actions.map((action) => (action.kind === "grow_volume" ? (grows[nextGrow++] ?? action) : action))) {
       try {
         if (await this.executeAction(action, oci, overrides, now, cooldowns, listedPools)) reschedule = true;
         this.saveCooldowns(cooldowns);
@@ -2997,8 +3413,13 @@ export class FleetDO extends DurableObject<Env> {
   private saveCooldowns(cooldowns: ReadonlyMap<string, number>): void {
     const currentPoolKeys = new Set(this.loadRegionRows().flatMap(({ label, instance_pool_id: poolId }) =>
       poolId === null || poolId.length === 0 ? [] : [poolScaleUpCooldownKey(label, poolId), poolScaleDownCooldownKey(label, poolId)]));
+    const merged = new Map(cooldowns);
+    const volumePrefix = volumeGrowCooldownKey("");
+    for (const [key, at] of Object.entries(this.getState<Record<string, number>>("autoscale_cooldowns") ?? {})) {
+      if (key.startsWith(volumePrefix)) merged.set(key, Math.max(at, merged.get(key) ?? at));
+    }
     this.setState("autoscale_cooldowns", Object.fromEntries(
-      [...cooldowns].filter(([key]) => !(key.startsWith("pool-up:") || key.startsWith("pool-down:")) || currentPoolKeys.has(key))));
+      [...merged].filter(([key]) => !(key.startsWith("pool-up:") || key.startsWith("pool-down:")) || currentPoolKeys.has(key))));
   }
 
   private poolSignal(region: string): AbortSignal {
@@ -3040,7 +3461,12 @@ export class FleetDO extends DurableObject<Env> {
     this.deleteState(`sent_desired:${nodeId}`);
     this.deleteState(`sent_routes:${nodeId}`);
     this.deleteState(`volume_grow:${nodeId}`);
+    this.deleteState(`volume_binding:${nodeId}`);
+    this.deleteState(`volume_binding_pending:${nodeId}`);
+    this.deleteState(`volume_reconcile:${nodeId}`);
     this.pendingRollups.delete(nodeId);
+    this.lastVolumeOpAttempt.delete(nodeId);
+    this.deferredGrowNodes.delete(nodeId);
   }
 
   private async executeAction(
@@ -3153,57 +3579,369 @@ export class FleetDO extends DurableObject<Env> {
       case "grow_volume": {
         if (oci === null) return false;
         const row = this.loadNodeRow(action.nodeId);
-        if (row === undefined || row.pool_kind !== "stateful" || row.region !== action.region || row.status === "down") return false;
+        if (row === undefined || row.pool_kind !== "stateful" || row.region !== action.region) return false;
+        if (this.verifiedTargetVolume(action.nodeId, row.token_hash, action.target) === undefined) return false;
         const region = this.sql.exec<RegionRow>("SELECT * FROM regions WHERE label = ?", row.region).toArray()[0];
         if (region === undefined || region.oci_region !== action.ociRegion) return false;
-        const storedLabels = parseLabels(row.labels_json);
-        const knownVolumeId = storedLabels[DATA_VOLUME_ID_LABEL];
-        if (knownVolumeId !== undefined && !hasVolumeGrowthBudget(this.getState<number>(`volume_resize_at:${knownVolumeId}`) ?? undefined, now)) {
-          cooldowns.set(volumeGrowCooldownKey(action.nodeId), now);
+        if (this.backgroundVolumeReconciles.has(action.nodeId)) {
+          this.deferredGrowNodes.add(action.nodeId);
           return false;
         }
-        const instanceId = await this.enrolledInstanceId(row);
-        if (instanceId === null) {
-          cooldowns.set(volumeGrowCooldownKey(action.nodeId), now);
+        if (this.volumeOperations.has(action.nodeId) || this.volumeReconciles.has(action.nodeId)) return false;
+        if (this.volumeReconciles.size >= MAX_VOLUME_OPS) {
+          this.volumeGrowDeferred = true;
           return false;
         }
-        const volume = await oci.statefulDataVolume(region.oci_region, region.label, region.compartment_id, instanceId);
-        if (volume === null || volume.sizeGiB >= VOLUME_MAX_GIB) {
-          cooldowns.set(volumeGrowCooldownKey(action.nodeId), now);
-          return false;
-        }
-        const current = this.loadNodeRow(action.nodeId);
-        if (current === undefined || current.token_hash !== row.token_hash || current.status === "down") return false;
-        const budget = `volume_resize_at:${volume.id}`;
-        const requestedAt = Date.now();
-        if (!hasVolumeGrowthBudget(this.getState<number>(budget) ?? undefined, requestedAt)) {
-          cooldowns.set(volumeGrowCooldownKey(action.nodeId), now);
-          return false;
-        }
-        const newSizeGiB = Math.min(VOLUME_MAX_GIB, volume.sizeGiB + VOLUME_GROW_GIB);
-        const labels = { ...parseLabels(current.labels_json), [DATA_VOLUME_ID_LABEL]: volume.id };
-        this.sql.exec("UPDATE nodes SET labels_json = ? WHERE id = ?", JSON.stringify(labels), action.nodeId);
-        this.setState(budget, requestedAt);
-        await oci.updateVolumeSize(action.ociRegion, volume.id, newSizeGiB, volume.etag);
-        if (this.loadNodeRow(action.nodeId)?.token_hash !== row.token_hash) return false;
-        const previousSizeGiB = finite(
-          parseJson<VolumeInfo[]>(current.volumes_json, []).find((info) => info.mountPath === DATA_VOLUME_PATH)?.sizeGiB,
-          0,
-        );
-        this.setState(`volume_grow:${action.nodeId}`, {
-          at: now,
-          lastSentAt: now,
-          previousSizeGiB,
-          newSizeGiB,
-          reason: action.reason,
-          mountPath: DATA_VOLUME_PATH,
-        });
-        this.send(action.nodeId, { type: "grow_volume", mountPath: DATA_VOLUME_PATH });
-        cooldowns.set(volumeGrowCooldownKey(action.nodeId), now);
+        this.volumeOperations.add(action.nodeId);
+        this.volumeReconciles.add(action.nodeId);
+        this.lastVolumeOpAttempt.set(action.nodeId, Date.now());
+        this.ctx.waitUntil(this.runVolumeGrow(action, row, region, oci, now));
         return false;
       }
       default:
         return false;
+    }
+  }
+
+  private async runVolumeGrow(
+    action: Extract<AutoscaleAction, { kind: "grow_volume" }>,
+    row: NodeRow,
+    region: RegionRow,
+    oci: OciRestClient,
+    now: number,
+  ): Promise<void> {
+    try {
+      await this.runMaintenanceTask("volume_grow", () => this.growVolume(action, row, region, oci, now), "last_autoscale_error");
+    } finally {
+      this.volumeOperations.delete(action.nodeId);
+      this.volumeReconciles.delete(action.nodeId);
+    }
+    await this.wakeAfterVolumeSlotRelease();
+  }
+
+  private async wakeAfterVolumeSlotRelease(released: readonly string[] = []): Promise<void> {
+    await this.runMaintenanceTask("volume_reconcile_alarm", async () => {
+      const regrow = this.takeDeferredGrows(released, Date.now());
+      const deferred = this.volumeGrowDeferred || regrow;
+      this.volumeGrowDeferred = false;
+      if (deferred) this.setState("autoscale_at", 0);
+      if (deferred || this.dueVolumeReconciles(Date.now()).length > 0) await this.ensureAlarm();
+    });
+  }
+
+  private takeDeferredGrows(nodeIds: Iterable<string>, now: number): boolean {
+    const ready = [...nodeIds].filter((nodeId) => !this.volumeReconciles.has(nodeId) && this.deferredGrowNodes.delete(nodeId) &&
+      !this.volumeOperations.has(nodeId) && this.getState(`volume_grow:${nodeId}`) === null);
+    if (ready.length === 0) return false;
+    const cooldowns = this.getState<Record<string, number>>("autoscale_cooldowns") ?? {};
+    return ready.some((nodeId) => hasVolumeGrowthBudget(cooldowns[volumeGrowCooldownKey(nodeId)], now));
+  }
+
+  private stampVolumeGrowCooldown(nodeId: string, at: number): void {
+    const stored = Object.entries(this.getState<Record<string, number>>("autoscale_cooldowns") ?? {});
+    this.saveCooldowns(new Map([...stored, [volumeGrowCooldownKey(nodeId), at]]));
+  }
+
+  private async growVolume(
+    action: Extract<AutoscaleAction, { kind: "grow_volume" }>,
+    row: NodeRow,
+    region: RegionRow,
+    oci: OciRestClient,
+    now: number,
+  ): Promise<void> {
+    const lookup = await this.lookupDataVolume(action.nodeId, row, region, oci, action.target);
+    if (lookup.kind === "stale") return;
+    if (lookup.kind === "unavailable") {
+      this.stampVolumeGrowCooldown(action.nodeId, now);
+      return;
+    }
+    const { volume, instanceId, bound, guestSizeGiB } = lookup;
+    const binding = this.volumeBinding(action.nodeId, bound, volume, action.target);
+    if (binding === "conflict") {
+      console.warn("volume grow refused: OCI attachment does not match the bound guest volume", action.nodeId, volume.id);
+      this.stampVolumeGrowCooldown(action.nodeId, now);
+      return;
+    }
+    if (binding === "stale") return;
+    if (volume.lifecycleState !== "AVAILABLE") {
+      const checkedAt = Date.now();
+      if (guestBehindOci(guestSizeGiB, volume) || this.loadVolumeResizeTarget(volume.id, checkedAt) !== null) {
+        this.scheduleVolumeReconcile(action.nodeId, checkedAt + VOLUME_RECONCILE_PROBE_MS);
+      }
+      return;
+    }
+    if (guestBehindOci(guestSizeGiB, volume)) {
+      await this.recoverGuestVolume(action.nodeId, row, region, oci, lookup, action.target, action.reason);
+      this.stampVolumeGrowCooldown(action.nodeId, now);
+      return;
+    }
+    const budget = `volume_resize_at:${volume.id}`;
+    if (volume.sizeGiB >= VOLUME_MAX_GIB || !hasVolumeGrowthBudget(this.getState<number>(budget) ?? undefined, now)) {
+      this.stampVolumeGrowCooldown(action.nodeId, now);
+      return;
+    }
+    const newSizeGiB = Math.min(VOLUME_MAX_GIB, volume.sizeGiB + VOLUME_GROW_GIB);
+    const reservation = { budgetExhausted: false, previousSizeGiB: 0 };
+    const update = await oci.updateVolumeSize(action.ociRegion, region.compartment_id, instanceId, volume, newSizeGiB, () => {
+      const live = this.verifiedTargetVolume(action.nodeId, row.token_hash, action.target);
+      if (live === undefined || this.volumeBinding(action.nodeId, live, volume, action.target) !== "bound") return false;
+      const requestedAt = Date.now();
+      if (!hasVolumeGrowthBudget(this.getState<number>(budget) ?? undefined, requestedAt)) {
+        reservation.budgetExhausted = true;
+        return false;
+      }
+      reservation.previousSizeGiB = finite(live.target.sizeGiB, 0);
+      const labels = { ...parseLabels(live.row.labels_json), [DATA_VOLUME_ID_LABEL]: volume.id };
+      this.sql.exec("UPDATE nodes SET labels_json = ? WHERE id = ?", JSON.stringify(labels), action.nodeId);
+      this.setState(budget, requestedAt);
+      this.scheduleVolumeReconcile(action.nodeId, requestedAt + VOLUME_RECONCILE_PROBE_MS);
+      this.reserveVolumeResizeTarget(volume.id, newSizeGiB, requestedAt + VOLUME_GROW_MAX_MS);
+      return true;
+    });
+    if (!update.dispatched) {
+      if (reservation.budgetExhausted) this.stampVolumeGrowCooldown(action.nodeId, now);
+      return;
+    }
+    const attached = await oci.dataVolumeStillAttached(action.ociRegion, region.compartment_id, instanceId, volume);
+    const current = this.loadNodeRow(action.nodeId);
+    if (current?.token_hash !== row.token_hash) {
+      if (current !== undefined) this.scheduleVolumeReconcile(action.nodeId, Math.min(this.loadVolumeReconcile(action.nodeId).nextAt, Date.now()));
+      return;
+    }
+    if (!attached) {
+      this.scheduleVolumeReconcile(action.nodeId, 0);
+      this.stampVolumeGrowCooldown(action.nodeId, now);
+      return;
+    }
+    const pending: PendingVolumeGrow = {
+      at: Date.now(),
+      lastAttemptAt: 0,
+      previousSizeGiB: reservation.previousSizeGiB,
+      newSizeGiB,
+      reason: action.reason,
+      volumeId: volume.id,
+      attachmentId: volume.attachmentId,
+      tokenHash: row.token_hash,
+      target: action.target,
+    };
+    this.setState(`volume_grow:${action.nodeId}`, pending);
+    this.stampVolumeGrowCooldown(action.nodeId, now);
+    if (update.volume === null || !ociVolumeReady(update.volume, newSizeGiB)) {
+      this.scheduleVolumeReconcile(action.nodeId, Date.now() + VOLUME_RECONCILE_PROBE_MS);
+      return;
+    }
+    this.deleteState(`volume_reconcile:${action.nodeId}`);
+    this.dispatchVolumeGrow(action.nodeId, pending, volume);
+  }
+
+  private async lookupDataVolume(nodeId: string, row: NodeRow, region: RegionRow, oci: OciRestClient, target: VolumeGrowTarget): Promise<DataVolumeLookup> {
+    const instanceId = await this.enrolledInstanceId(row);
+    if (instanceId === null) return { kind: "unavailable" };
+    if (!measuredGiB(this.verifiedTargetVolume(nodeId, row.token_hash, target)?.target.sizeGiB)) return { kind: "stale" };
+    const volume = await oci.statefulDataVolume(region.oci_region, region.label, region.compartment_id, instanceId);
+    if (volume === null) return { kind: "unavailable" };
+    const bound = this.verifiedTargetVolume(nodeId, row.token_hash, target);
+    if (bound === undefined || !measuredGiB(bound.target.sizeGiB)) return { kind: "stale" };
+    return { kind: "found", volume, instanceId, bound, guestSizeGiB: bound.target.sizeGiB };
+  }
+
+  private dispatchVolumeGrow(nodeId: string, pending: PendingVolumeGrow, volume: OciDataVolume): void {
+    const live = this.verifiedTargetVolume(nodeId, pending.tokenHash, pending.target);
+    if (live === undefined || this.volumeBinding(nodeId, live, volume, pending.target) !== "bound") return;
+    this.sendPendingVolumeGrow(nodeId, pending);
+  }
+
+  private async recoverGuestVolume(
+    nodeId: string,
+    row: NodeRow,
+    region: RegionRow,
+    oci: OciRestClient,
+    { volume, instanceId, guestSizeGiB }: FoundDataVolume,
+    target: VolumeGrowTarget,
+    reason: string,
+  ): Promise<void> {
+    const attached = await oci.dataVolumeStillAttached(region.oci_region, region.compartment_id, instanceId, volume);
+    if (this.loadNodeRow(nodeId)?.token_hash !== row.token_hash || this.loadPendingVolumeGrow(nodeId) !== null) return;
+    if (!attached) {
+      this.scheduleVolumeReconcile(nodeId, 0);
+      return;
+    }
+    if (!ociVolumeReady(volume, volume.sizeGiB)) {
+      this.scheduleVolumeReconcile(nodeId, Date.now() + VOLUME_RECONCILE_PROBE_MS);
+      return;
+    }
+    const recovered: PendingVolumeGrow = {
+      at: Date.now(),
+      lastAttemptAt: 0,
+      previousSizeGiB: guestSizeGiB,
+      newSizeGiB: volume.sizeGiB,
+      reason,
+      volumeId: volume.id,
+      attachmentId: volume.attachmentId,
+      tokenHash: row.token_hash,
+      target,
+    };
+    this.setState(`volume_grow:${nodeId}`, recovered);
+    this.deleteState(`volume_reconcile:${nodeId}`);
+    this.dispatchVolumeGrow(nodeId, recovered, volume);
+  }
+
+  private dueVolumeReconciles(now: number): string[] {
+    return this.sql
+      .exec<{ key: string; value: string }>("SELECT key, value FROM kv_state WHERE key LIKE 'volume_reconcile:%'")
+      .toArray()
+      .map(({ key, value }) => ({ nodeId: key.slice("volume_reconcile:".length), nextAt: volumeReconcileMarker(parseJson<unknown>(value, null)).nextAt }))
+      .filter(({ nodeId, nextAt }) => nextAt <= now && !this.volumeOperations.has(nodeId) && !this.volumeReconciles.has(nodeId))
+      .map(({ nodeId, nextAt }) => ({ nodeId, nextAt, order: Math.max(nextAt, this.lastVolumeOpAttempt.get(nodeId) ?? 0) }))
+      .sort((left, right) => left.order - right.order || left.nextAt - right.nextAt)
+      .map(({ nodeId }) => nodeId);
+  }
+
+  private startVolumeReconciles(now: number): void {
+    this.pruneVolumeResizeTargets(now);
+    const free = Math.min(MAX_BACKGROUND_RECONCILES - this.backgroundVolumeReconciles.size, MAX_VOLUME_OPS - this.volumeReconciles.size);
+    const batch = this.dueVolumeReconciles(now).slice(0, Math.max(0, free));
+    if (batch.length === 0) return;
+    const startedAt = Date.now();
+    for (const nodeId of batch) {
+      this.volumeReconciles.add(nodeId);
+      this.backgroundVolumeReconciles.add(nodeId);
+      this.lastVolumeOpAttempt.set(nodeId, startedAt);
+    }
+    this.ctx.waitUntil(this.runVolumeReconciles(batch, now));
+  }
+
+  private async runVolumeReconciles(batch: string[], now: number): Promise<void> {
+    try {
+      const oci = await this.oci();
+      await Promise.all(batch.map((nodeId) => this.runMaintenanceTask("volume_reconcile", () => this.reconcileVolumeSize(nodeId, oci, now))));
+    } catch (error) {
+      console.error("fleet volume reconcile batch failed", error);
+    } finally {
+      for (const nodeId of batch) {
+        this.volumeReconciles.delete(nodeId);
+        this.backgroundVolumeReconciles.delete(nodeId);
+      }
+    }
+    await this.wakeAfterVolumeSlotRelease(batch);
+  }
+
+  private async reconcileVolumeSize(nodeId: string, oci: OciRestClient | null, now: number): Promise<void> {
+    const key = `volume_reconcile:${nodeId}`;
+    const row = this.loadNodeRow(nodeId);
+    const region = row === undefined ? undefined : this.sql.exec<RegionRow>("SELECT * FROM regions WHERE label = ?", row.region).toArray()[0];
+    const reported = row === undefined ? undefined : parseJson<VolumeInfo[]>(row.volumes_json, []).find((volume) => volume.mountPath === DATA_VOLUME_PATH);
+    const target = reported === undefined ? null : volumeGrowTarget(reported);
+    if (oci === null || row === undefined || row.pool_kind !== "stateful" || region === undefined) {
+      this.deleteState(key);
+      return;
+    }
+    const pending = this.loadPendingVolumeGrow(nodeId);
+    const offline = !this.connected(nodeId) || row.status === "down";
+    if (offline) console.log(JSON.stringify({ type: "volume_reconcile_offline_dropped", nodeId, status: row.status, pending: pending !== null, at: Date.now() }));
+    if (pending !== null) {
+      this.deleteState(key);
+      if (!offline && !this.volumeOperations.has(nodeId)) await this.replayPendingVolumeGrow(nodeId, pending, row, region, oci);
+      return;
+    }
+    if (offline) {
+      this.deleteState(key);
+      return;
+    }
+    if (this.volumeOperations.has(nodeId)) return;
+    if (target === null || this.verifiedTargetVolume(nodeId, row.token_hash, target) === undefined) {
+      this.scheduleVolumeReconcile(nodeId, now + VOLUME_RECONCILE_PROBE_MS);
+      return;
+    }
+    this.scheduleVolumeReconcile(nodeId, now + VOLUME_RECONCILE_RETRY_MS);
+    this.volumeOperations.add(nodeId);
+    try {
+      const lookup = await this.lookupDataVolume(nodeId, row, region, oci, target);
+      if (lookup.kind === "unavailable") return;
+      if (lookup.kind === "stale") {
+        if (this.loadNodeRow(nodeId)?.token_hash === row.token_hash) this.scheduleVolumeReconcile(nodeId, Date.now() + VOLUME_RECONCILE_PROBE_MS);
+        return;
+      }
+      const { volume, bound, guestSizeGiB } = lookup;
+      const checkedAt = Date.now();
+      const resize = this.loadVolumeResizeTarget(volume.id, checkedAt);
+      if (!ociVolumeReady(volume, resize?.targetSizeGiB ?? 0)) {
+        if (this.loadNodeRow(nodeId)?.token_hash === row.token_hash) this.scheduleVolumeReconcile(nodeId, checkedAt + VOLUME_RECONCILE_PROBE_MS);
+        return;
+      }
+      if (resize !== null) this.deleteState(`volume_resize_target:${volume.id}`);
+      if (!guestBehindOci(guestSizeGiB, volume)) {
+        if (this.loadNodeRow(nodeId)?.token_hash === row.token_hash) this.scheduleVolumeReconcile(nodeId, checkedAt + VOLUME_RECONCILE_PERIODIC_MS);
+        return;
+      }
+      const binding = this.volumeBinding(nodeId, bound, volume, target);
+      if (binding === "conflict") {
+        console.warn("volume reconcile refused: OCI attachment does not match the bound guest volume", nodeId, volume.id);
+        return;
+      }
+      if (binding === "stale") {
+        this.scheduleVolumeReconcile(nodeId, Date.now() + VOLUME_RECONCILE_PROBE_MS);
+        return;
+      }
+      if (this.loadPendingVolumeGrow(nodeId) === null) await this.recoverGuestVolume(nodeId, row, region, oci, lookup, target, "oci_size_reconcile");
+    } finally {
+      this.volumeOperations.delete(nodeId);
+    }
+  }
+
+  private async replayPendingVolumeGrow(nodeId: string, pending: PendingVolumeGrow, row: NodeRow, region: RegionRow, oci: OciRestClient): Promise<void> {
+    const key = `volume_grow:${nodeId}`;
+    if (row.token_hash !== pending.tokenHash) {
+      this.clearPendingVolumeGrow(nodeId);
+      return;
+    }
+    this.volumeOperations.add(nodeId);
+    try {
+      const lookup = await this.lookupDataVolume(nodeId, row, region, oci, pending.target);
+      if (lookup.kind !== "found") return;
+      const loaded = this.loadPendingVolumeGrow(nodeId);
+      if (loaded === null || loaded.at !== pending.at) return;
+      const { volume, bound, instanceId, guestSizeGiB } = lookup;
+      const checkedAt = Date.now();
+      if (volumeGrowExpired(loaded.at, checkedAt)) {
+        this.expireVolumeGrow(nodeId);
+        return;
+      }
+      if (volumeReachedTarget(guestSizeGiB, loaded.newSizeGiB, loaded.previousSizeGiB)) {
+        this.clearPendingVolumeGrow(nodeId);
+        return;
+      }
+      if (volume.id !== loaded.volumeId || volume.attachmentId !== loaded.attachmentId) {
+        this.deleteState(key);
+        this.scheduleVolumeReconcile(nodeId, 0);
+        return;
+      }
+      if (!ociVolumeReady(volume, loaded.newSizeGiB)) {
+        if (this.loadNodeRow(nodeId)?.token_hash === loaded.tokenHash) this.scheduleVolumeReconcile(nodeId, checkedAt + VOLUME_RECONCILE_PROBE_MS);
+        return;
+      }
+      if (!guestBehindOci(guestSizeGiB, volume)) {
+        this.clearPendingVolumeGrow(nodeId);
+        return;
+      }
+      const binding = this.volumeBinding(nodeId, bound, volume, loaded.target);
+      if (binding === "stale") return;
+      if (binding === "conflict") {
+        this.deleteState(key);
+        this.scheduleVolumeReconcile(nodeId, 0);
+        return;
+      }
+      const attached = await oci.dataVolumeStillAttached(region.oci_region, region.compartment_id, instanceId, volume);
+      const current = this.loadPendingVolumeGrow(nodeId);
+      if (current === null || current.at !== pending.at) return;
+      if (!attached) {
+        this.deleteState(key);
+        this.scheduleVolumeReconcile(nodeId, 0);
+        return;
+      }
+      this.dispatchVolumeGrow(nodeId, current, volume);
+    } finally {
+      this.volumeOperations.delete(nodeId);
     }
   }
 
@@ -3957,7 +4695,12 @@ export class FleetDO extends DurableObject<Env> {
       this.deleteState(`sent_desired:${nodeId}`);
       this.deleteState(`sent_routes:${nodeId}`);
       this.deleteState(`volume_grow:${nodeId}`);
+      this.deleteState(`volume_binding:${nodeId}`);
+      this.deleteState(`volume_binding_pending:${nodeId}`);
+      this.deleteState(`volume_reconcile:${nodeId}`);
       this.pendingRollups.delete(nodeId);
+      this.lastVolumeOpAttempt.delete(nodeId);
+      this.deferredGrowNodes.delete(nodeId);
       this.recordEvent("node_lost", nodeId, { phase: "removed", force, by: principal.owner }, row.region);
     });
     await this.reconcile(now);

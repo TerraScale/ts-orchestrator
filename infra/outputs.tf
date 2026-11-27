@@ -23,3 +23,13 @@ output "geodns" {
     pinned_fqdns      = module.geodns.pinned_fqdns
   }
 }
+
+output "backups" {
+  description = "Object Storage bucket TerraBase archives commit logs and snapshots into."
+  value = {
+    namespace  = oci_objectstorage_bucket.backups.namespace
+    name       = oci_objectstorage_bucket.backups.name
+    region     = local.backup_oci_region
+    versioning = oci_objectstorage_bucket.backups.versioning
+  }
+}

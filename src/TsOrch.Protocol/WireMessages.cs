@@ -30,18 +30,27 @@ public sealed record class Hello(
     int MemTotalMiB,
     int DiskTotalGiB,
     IReadOnlyDictionary<string, string> Labels,
-    IReadOnlyList<VolumeInfo> Volumes,
     string AgentVersion,
-    string? NetbirdIp = null) : AgentMessage;
+    long VolumeSeq,
+    IReadOnlyList<VolumeInfo>? Volumes = null,
+    string? NetbirdIp = null,
+    IReadOnlyList<string>? Capabilities = null) : AgentMessage;
+
+public static class AgentCapabilities
+{
+    public const string GrowVolumeId = "grow_volume_id";
+}
 
 public sealed record class Heartbeat(
     long Ts,
     IReadOnlyList<PlacementReport> Placements,
     HostMetrics HostMetrics,
     IReadOnlyList<ContainerMetrics> ContainerMetrics,
+    long VolumeSeq,
     EdgeMetricsSnapshot? EdgeMetrics = null,
     string? NetbirdIp = null,
-    IReadOnlyList<VolumeInfo>? Volumes = null) : AgentMessage;
+    IReadOnlyList<VolumeInfo>? Volumes = null,
+    string? VolumeChallenge = null) : AgentMessage;
 
 public sealed record class PlacementEvent(
     string PlacementId,
@@ -57,7 +66,7 @@ public sealed record class PlacementEvent(
 
 public sealed record class DrainComplete(string NodeId) : AgentMessage;
 
-public sealed record class VolumeGrown(string NodeId, string VolumePath, int NewSizeGiB) : AgentMessage;
+public sealed record class VolumeGrown(string NodeId, string VolumePath, int NewSizeGiB, string? VolumeId = null) : AgentMessage;
 
 public sealed record class LogChunk(string RequestId, LogChannel Stream, string Line) : AgentMessage;
 
@@ -70,6 +79,7 @@ public sealed record class ExecResult(string RequestId, int ExitCode, string Std
 [JsonDerivedType(typeof(RefreshSecrets), "refresh_secrets")]
 [JsonDerivedType(typeof(Drain), "drain")]
 [JsonDerivedType(typeof(GrowVolume), "grow_volume")]
+[JsonDerivedType(typeof(ProbeVolumes), "probe_volumes")]
 [JsonDerivedType(typeof(StreamLogs), "stream_logs")]
 [JsonDerivedType(typeof(StopLogs), "stop_logs")]
 [JsonDerivedType(typeof(ExecCommand), "exec_command")]
@@ -96,7 +106,9 @@ public sealed record class RefreshSecrets(string ServiceName) : BackplaneMessage
 
 public sealed record class Drain(string Reason) : BackplaneMessage;
 
-public sealed record class GrowVolume(string MountPath) : BackplaneMessage;
+public sealed record class GrowVolume(string MountPath, string? VolumeId = null, string? Device = null, string? VolumeIdentity = null) : BackplaneMessage;
+
+public sealed record class ProbeVolumes(string Challenge) : BackplaneMessage;
 
 public sealed record class StreamLogs(string RequestId, string ContainerName, int Tail, bool Follow) : BackplaneMessage;
 

@@ -15,10 +15,16 @@ public sealed class BackplaneDispatcher(
 {
     public void SetNodeIdentity(string nodeId, HostIdentity identity) => reconciler.SetNodeIdentity(nodeId, identity);
 
-    public async ValueTask DispatchAsync(BackplaneMessage message, NodeSession session, ChannelWriter<LogChunk> followedLogs, CancellationToken cancellationToken)
+    public async ValueTask DispatchAsync(
+        BackplaneMessage message,
+        NodeSession session,
+        SessionVolumeReports volumeReports,
+        ChannelWriter<LogChunk> followedLogs,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(message);
         ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(volumeReports);
         var handled = message switch
         {
             SyncDesired desired => ApplyDesired(desired),
@@ -26,7 +32,8 @@ public sealed class BackplaneDispatcher(
             SyncTls tls => edge.WriteTlsAsync(tls, cancellationToken),
             RefreshSecrets refresh => RefreshSecrets(refresh),
             Drain drain => maintenance.EnqueueAsync(new DrainWork(session.NodeId, drain.Reason), cancellationToken),
-            GrowVolume grow => maintenance.EnqueueAsync(new GrowVolumeWork(session.NodeId, grow.MountPath), cancellationToken),
+            GrowVolume grow => maintenance.EnqueueGrowVolumeAsync(session.NodeId, grow, cancellationToken),
+            ProbeVolumes probe => new ValueTask(volumeReports.SendVolumeProbeAsync(probe, cancellationToken)),
             StreamLogs logs => sessions.StartLogsAsync(logs, followedLogs, cancellationToken),
             StopLogs stop => sessions.StopLogsAsync(stop),
             ExecCommand exec => sessions.StartExecAsync(exec, cancellationToken),
@@ -150,18 +157,19 @@ public sealed class NodeAgentRunner(
         using var sessionSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var token = sessionSource.Token;
         var sender = new FrameSender(socket, sendGate);
-        await sender.SendAsync(Serialize(await reports.ComposeHelloAsync(session, token)), token);
+        using var volumeReports = new SessionVolumeReports(reports, session, (message, sendToken) => sender.SendAsync(Serialize(message), sendToken));
+        await volumeReports.SendHelloAsync(token);
 
         var connectedAt = timeProvider.GetTimestamp();
         var activity = new SessionActivity(connectedAt);
         var followedLogs = AgentOutbox.CreateFollowedLogChannel();
         Task[] loops =
         [
-            ReceiveLoopAsync(socket, session, activity, followedLogs.Writer, token),
+            ReceiveLoopAsync(socket, session, volumeReports, activity, followedLogs.Writer, token),
             PumpOutboxAsync(sender, token),
             PumpFollowedLogsAsync(sender, followedLogs.Reader, token),
             KeepAliveLoopAsync(sender, activity, token),
-            HeartbeatLoopAsync(sender, token),
+            HeartbeatLoopAsync(volumeReports, token),
         ];
         await Task.WhenAny(loops);
         await sessionSource.CancelAsync();
@@ -180,7 +188,13 @@ public sealed class NodeAgentRunner(
         return timeProvider.GetElapsedTime(connectedAt) >= options.KeepAliveInterval;
     }
 
-    private async Task ReceiveLoopAsync(ClientWebSocket socket, NodeSession session, SessionActivity activity, ChannelWriter<LogChunk> followedLogs, CancellationToken cancellationToken)
+    private async Task ReceiveLoopAsync(
+        ClientWebSocket socket,
+        NodeSession session,
+        SessionVolumeReports volumeReports,
+        SessionActivity activity,
+        ChannelWriter<LogChunk> followedLogs,
+        CancellationToken cancellationToken)
     {
         var buffer = new ArrayBufferWriter<byte>(64 * 1024);
         while (true)
@@ -224,7 +238,7 @@ public sealed class NodeAgentRunner(
 
             if (message is not null)
             {
-                await dispatcher.DispatchAsync(message, session, followedLogs, cancellationToken);
+                await dispatcher.DispatchAsync(message, session, volumeReports, followedLogs, cancellationToken);
             }
         }
     }
@@ -233,9 +247,17 @@ public sealed class NodeAgentRunner(
     {
         while (await outbox.Reader.WaitToReadAsync(cancellationToken))
         {
-            while (outbox.Reader.TryPeek(out var message))
+            while (outbox.Reader.TryPeek(out var entry))
             {
-                await sender.SendAsync(Serialize(message), cancellationToken);
+                if (entry.SessionToken.IsCancellationRequested)
+                {
+                    AgentLog.OutboxSessionMessageDropped(logger);
+                }
+                else
+                {
+                    await sender.SendAsync(Serialize(entry.Message), cancellationToken);
+                }
+
                 outbox.Reader.TryRead(out _);
             }
         }
@@ -265,12 +287,12 @@ public sealed class NodeAgentRunner(
         }
     }
 
-    private async Task HeartbeatLoopAsync(FrameSender sender, CancellationToken cancellationToken)
+    private async Task HeartbeatLoopAsync(SessionVolumeReports volumeReports, CancellationToken cancellationToken)
     {
         using var timer = new PeriodicTimer(options.HeartbeatInterval, timeProvider);
         do
         {
-            await sender.SendAsync(Serialize(await reports.ComposeHeartbeatAsync(cancellationToken)), cancellationToken);
+            await volumeReports.SendHeartbeatAsync(cancellationToken);
         }
         while (await timer.WaitForNextTickAsync(cancellationToken));
     }

@@ -245,6 +245,7 @@ export interface VolumeInfo {
   device: string;
   sizeGiB: number;
   usedPct: number;
+  identity?: string;
 }
 
 export interface NodeInfo {
@@ -495,9 +496,11 @@ export interface HelloMessage {
   memTotalMiB: number;
   diskTotalGiB: number;
   labels: Record<string, string>;
-  volumes: VolumeInfo[];
   agentVersion: string;
+  volumeSeq: number;
+  volumes?: VolumeInfo[];
   netbirdIp?: string;
+  capabilities?: string[];
 }
 
 export interface HeartbeatMessage {
@@ -506,9 +509,11 @@ export interface HeartbeatMessage {
   placements: PlacementReport[];
   hostMetrics: HostMetrics;
   containerMetrics: ContainerMetrics[];
+  volumeSeq: number;
   edgeMetrics?: EdgeMetricsSnapshot;
   netbirdIp?: string;
   volumes?: VolumeInfo[];
+  volumeChallenge?: string;
 }
 
 export interface PlacementEventMessage {
@@ -535,6 +540,7 @@ export interface VolumeGrownMessage {
   nodeId: string;
   volumePath: string;
   newSizeGiB: number;
+  volumeId?: string;
 }
 
 export interface LogChunkMessage {
@@ -598,6 +604,14 @@ export interface DrainMessage {
 export interface GrowVolumeMessage {
   type: "grow_volume";
   mountPath: string;
+  volumeId?: string;
+  device?: string;
+  volumeIdentity?: string;
+}
+
+export interface ProbeVolumesMessage {
+  type: "probe_volumes";
+  challenge: string;
 }
 
 export interface StreamLogsMessage {
@@ -635,6 +649,7 @@ export type BackplaneMessage =
   | RefreshSecretsMessage
   | DrainMessage
   | GrowVolumeMessage
+  | ProbeVolumesMessage
   | StreamLogsMessage
   | StopLogsMessage
   | ExecCommandMessage

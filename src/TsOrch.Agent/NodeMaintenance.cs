@@ -13,7 +13,14 @@ public closed record class MaintenanceWork;
 
 public sealed record class DrainWork(string NodeId, string Reason) : MaintenanceWork;
 
-public sealed record class GrowVolumeWork(string NodeId, string MountPath) : MaintenanceWork;
+public sealed record class GrowVolumeWork(
+    string NodeId,
+    string MountPath,
+    string VolumeId,
+    string AttachedDevice,
+    string ExpectedVolumeIdentity,
+    BlockVolumeIdentity Identity,
+    CancellationToken Session) : MaintenanceWork;
 
 public sealed record class UpgradeAgentWork(string Version, string Url, string Sha256) : MaintenanceWork;
 
@@ -24,14 +31,6 @@ public sealed record class MaintenanceToolTimedOut(string Message);
 public sealed record class MaintenanceToolUnavailable(string Message);
 
 public readonly union ProcessExecution(ProcessOutput, MaintenanceToolTimedOut, MaintenanceToolUnavailable);
-
-public sealed record class VolumeGrowthRejected(string Message);
-
-public sealed record class VolumeMountMissing(string Message);
-
-public sealed record class VolumeGrowthFailed(string Message);
-
-public readonly union VolumeGrowth(VolumeGrown, VolumeGrowthRejected, VolumeMountMissing, VolumeGrowthFailed, MaintenanceToolTimedOut, MaintenanceToolUnavailable);
 
 public readonly record struct AgentUpgradeCompleted;
 
@@ -47,12 +46,6 @@ public sealed record class AgentBundleDownloadTimedOut(string Message);
 
 public readonly union AgentUpgrade(AgentUpgradeCompleted, AgentUpgradeAlreadyCurrent, AgentUpgradeRejected, AgentUpgradeIoFailed,
     AgentBundleUnavailable, AgentBundleDownloadTimedOut, MaintenanceToolTimedOut, MaintenanceToolUnavailable);
-
-internal sealed record class GrowthDevice(MountEntry Mount, string Device, string Disk, string? Partition);
-
-internal readonly record struct DedicatedVolumeAbsent;
-
-internal readonly union VolumeGrowthTarget(GrowthDevice, DedicatedVolumeAbsent, VolumeGrowthRejected, VolumeGrowthFailed);
 
 internal readonly record struct AgentBundleVerified;
 
@@ -80,6 +73,7 @@ public static class ProcessRunner
             RedirectStandardError = true,
             UseShellExecute = false,
         };
+        startInfo.Environment["LC_ALL"] = "C";
         foreach (var argument in arguments)
         {
             startInfo.ArgumentList.Add(argument);
@@ -121,6 +115,7 @@ public static class ProcessRunner
 public sealed class NodeMaintenance(
     ContainerReconciler reconciler,
     AgentOutbox outbox,
+    VolumeGrowthExecutor volumeGrowth,
     IHttpClientFactory httpClientFactory,
     IHostApplicationLifetime lifetime,
     AgentOptions options,
@@ -140,10 +135,120 @@ public sealed class NodeMaintenance(
         SingleReader = true,
     });
 
+    private readonly Lock _growGate = new();
+    private readonly Dictionary<string, GrowVolumeWork> _queuedGrows = [];
+    private readonly Dictionary<string, GrowVolumeWork> _runningGrows = [];
+
     public ValueTask EnqueueAsync(MaintenanceWork work, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(work);
         return _queue.Writer.WriteAsync(work, cancellationToken);
+    }
+
+    public async ValueTask EnqueueGrowVolumeAsync(string nodeId, GrowVolume grow, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
+        ArgumentNullException.ThrowIfNull(grow);
+        if (!VolumeGrowthExecutor.IsNormalizedMountPath(grow.MountPath))
+        {
+            await GrowFailed(grow.MountPath, VolumeGrowthExecutor.MountPathRejected(grow.MountPath).Message);
+            return;
+        }
+
+        if (grow is not { VolumeId: { Length: > 0 } volumeId, Device: { Length: > 0 } attachedDevice, VolumeIdentity: { Length: > 0 } volumeIdentity }
+            || !MountTable.IsCanonicalVolumeIdentity(volumeIdentity))
+        {
+            await GrowFailed(grow.MountPath, VolumeGrowthExecutor.UnboundVolumeGrowMessage(grow.MountPath));
+            return;
+        }
+
+        var target = VolumeGrowthExecutor.InspectVolumeGrowth(grow.MountPath, attachedDevice, volumeIdentity, cancellationToken);
+        var queued = target switch
+        {
+            GrowthDevice device => QueueGrowVolumeAsync(
+                new GrowVolumeWork(nodeId, grow.MountPath, volumeId, attachedDevice, volumeIdentity, device.Identity, cancellationToken),
+                cancellationToken),
+            VolumeGrowthRejected failure => GrowFailed(grow.MountPath, failure.Message),
+            VolumeGrowthFailed failure => GrowFailed(grow.MountPath, failure.Message),
+        };
+        await queued;
+    }
+
+    private async ValueTask QueueGrowVolumeAsync(GrowVolumeWork work, CancellationToken cancellationToken)
+    {
+        lock (_growGate)
+        {
+            if (_queuedGrows.ContainsKey(work.MountPath))
+            {
+                _queuedGrows[work.MountPath] = work;
+                return;
+            }
+
+            if (_runningGrows.TryGetValue(work.MountPath, out var running) && IsSameLiveGrow(running, work))
+            {
+                return;
+            }
+
+            _queuedGrows[work.MountPath] = work;
+        }
+
+        var written = false;
+        try
+        {
+            await _queue.Writer.WriteAsync(work, cancellationToken);
+            written = true;
+        }
+        finally
+        {
+            if (!written)
+            {
+                lock (_growGate)
+                {
+                    _queuedGrows.Remove(work.MountPath);
+                }
+            }
+        }
+    }
+
+    private static bool IsSameLiveGrow(GrowVolumeWork running, GrowVolumeWork retry) =>
+        !running.Session.IsCancellationRequested
+        && running.VolumeId == retry.VolumeId
+        && running.AttachedDevice == retry.AttachedDevice
+        && running.ExpectedVolumeIdentity == retry.ExpectedVolumeIdentity
+        && running.Identity == retry.Identity;
+
+    private GrowVolumeWork? StartQueuedGrow(string mountPath)
+    {
+        lock (_growGate)
+        {
+            if (!_queuedGrows.Remove(mountPath, out var work))
+            {
+                return null;
+            }
+
+            _runningGrows[mountPath] = work;
+            return work;
+        }
+    }
+
+    private async Task RunQueuedGrowVolumeAsync(string mountPath, CancellationToken cancellationToken)
+    {
+        if (StartQueuedGrow(mountPath) is not { } work)
+        {
+            return;
+        }
+
+        try
+        {
+            await RunGrowVolumeAsync(work, cancellationToken);
+        }
+        finally
+        {
+            lock (_growGate)
+            {
+                _runningGrows.Remove(mountPath);
+            }
+        }
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -153,7 +258,7 @@ public sealed class NodeMaintenance(
             var task = work switch
             {
                 DrainWork drain => RunDrainAsync(drain, stoppingToken),
-                GrowVolumeWork grow => RunGrowVolumeAsync(grow, stoppingToken),
+                GrowVolumeWork grow => RunQueuedGrowVolumeAsync(grow.MountPath, stoppingToken),
                 UpgradeAgentWork upgrade => RunUpgradeAsync(upgrade, stoppingToken),
             };
             await task;
@@ -171,103 +276,6 @@ public sealed class NodeMaintenance(
             NodeDrainIncomplete remaining => ReportDrainFailure($"Remaining placements: {string.Join(", ", remaining.PlacementIds)}"),
             NodeDrainUnverified failure => ReportDrainFailure(failure.Message),
         });
-    }
-
-    public async Task<VolumeGrowth> GrowVolumeAsync(
-        string nodeId,
-        string mountPath,
-        CancellationToken cancellationToken)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(nodeId);
-        if (string.IsNullOrWhiteSpace(mountPath) || mountPath.Contains('\0', StringComparison.Ordinal)
-            || !Path.IsPathFullyQualified(mountPath) || Path.GetFullPath(mountPath) != mountPath.TrimEnd('/'))
-        {
-            return new VolumeGrowthRejected($"Mount path {mountPath} must be an absolute normalized path.");
-        }
-
-        if (!Directory.Exists(mountPath))
-        {
-            return new VolumeMountMissing($"Mount path {mountPath} does not exist.");
-        }
-
-        var target = await InspectVolumeGrowthAsync(mountPath, cancellationToken);
-        return target switch
-        {
-            GrowthDevice device => await GrowDeviceAsync(nodeId, mountPath, device, cancellationToken),
-            DedicatedVolumeAbsent => SkipGrowth(nodeId, mountPath),
-            VolumeGrowthRejected failure => failure,
-            VolumeGrowthFailed failure => failure,
-        };
-    }
-
-    private static async Task<VolumeGrowthTarget> InspectVolumeGrowthAsync(string mountPath, CancellationToken cancellationToken)
-    {
-        try
-        {
-            var mounts = await MountTable.ReadAsync(cancellationToken);
-            var mount = MountTable.FindContaining(mounts, mountPath);
-            if (mount is null || mount.MountPoint != mountPath || !mount.Device.StartsWith("/dev/", StringComparison.Ordinal))
-            {
-                return new DedicatedVolumeAbsent();
-            }
-
-            var device = new FileInfo(mount.Device).ResolveLinkTarget(returnFinalTarget: true)?.FullName ?? mount.Device;
-            var disk = Path.GetFileName(device);
-            var sysBlock = Path.Combine("/sys/class/block", disk);
-            if (!Directory.Exists(sysBlock))
-            {
-                return new VolumeGrowthRejected($"Block device {device} is not visible under /sys/class/block.");
-            }
-
-            string? partition = null;
-            var partitionFile = Path.Combine(sysBlock, "partition");
-            if (File.Exists(partitionFile))
-            {
-                if (Path.GetFileName(Path.GetDirectoryName(new DirectoryInfo(sysBlock).ResolveLinkTarget(returnFinalTarget: true)?.FullName)) is not { Length: > 0 } parent)
-                {
-                    return new VolumeGrowthFailed($"Cannot resolve the parent disk of {device}.");
-                }
-
-                disk = parent;
-                partition = (await File.ReadAllTextAsync(partitionFile, cancellationToken)).Trim();
-            }
-
-            var rescan = Path.Combine("/sys/class/block", disk, "device", "rescan");
-            if (File.Exists(rescan))
-            {
-                await File.WriteAllTextAsync(rescan, "1", cancellationToken);
-            }
-
-            return new GrowthDevice(mount, device, disk, partition);
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
-            return new VolumeGrowthFailed($"Reading or rescanning the block device for {mountPath} failed: {exception.Message}");
-        }
-    }
-
-    private async Task<VolumeGrowth> GrowDeviceAsync(string nodeId, string mountPath, GrowthDevice device, CancellationToken cancellationToken)
-    {
-        if (device.Partition is not { } partition)
-        {
-            return await ResizeAsync(nodeId, mountPath, device.Mount, device.Device, cancellationToken);
-        }
-
-        var outcome = await ProcessRunner.RunAsync("growpart", [$"/dev/{device.Disk}", partition], ToolTimeout, timeProvider, cancellationToken);
-        return outcome switch
-        {
-            ProcessOutput { ExitCode: 0 } => await ResizeAsync(nodeId, mountPath, device.Mount, device.Device, cancellationToken),
-            ProcessOutput output when output.Stdout.Contains("NOCHANGE", StringComparison.Ordinal) => await ResizeAsync(nodeId, mountPath, device.Mount, device.Device, cancellationToken),
-            ProcessOutput output => new VolumeGrowthFailed($"growpart failed with {output.ExitCode}: {output.Stderr.Trim()}"),
-            MaintenanceToolTimedOut failure => failure,
-            MaintenanceToolUnavailable failure => failure,
-        };
-    }
-
-    private VolumeGrowth SkipGrowth(string nodeId, string mountPath)
-    {
-        AgentLog.VolumeGrowSkipped(logger, mountPath);
-        return MeasureVolume(nodeId, mountPath, logGrowth: false);
     }
 
     public async Task<AgentUpgrade> UpgradeAgentAsync(
@@ -351,52 +359,6 @@ public sealed class NodeMaintenance(
         };
     }
 
-    private async Task<VolumeGrowth> ResizeAsync(
-        string nodeId,
-        string mountPath,
-        MountEntry mount,
-        string device,
-        CancellationToken cancellationToken)
-    {
-        string[]? command = mount.FileSystem switch
-        {
-            "ext2" or "ext3" or "ext4" => ["resize2fs", device],
-            "xfs" => ["xfs_growfs", mountPath],
-            _ => null,
-        };
-        if (command is not [var tool, .. var arguments])
-        {
-            return new VolumeGrowthRejected($"File system {mount.FileSystem} on {mountPath} cannot be grown online.");
-        }
-
-        var outcome = await ProcessRunner.RunAsync(tool, arguments, ToolTimeout, timeProvider, cancellationToken);
-        return outcome switch
-        {
-            ProcessOutput { ExitCode: 0 } => MeasureVolume(nodeId, mountPath, logGrowth: true),
-            ProcessOutput output => new VolumeGrowthFailed($"Resizing {mount.FileSystem} on {mountPath} failed with {output.ExitCode}: {output.Stderr.Trim()}"),
-            MaintenanceToolTimedOut failure => failure,
-            MaintenanceToolUnavailable failure => failure,
-        };
-    }
-
-    private VolumeGrowth MeasureVolume(string nodeId, string mountPath, bool logGrowth)
-    {
-        try
-        {
-            var size = (int)Math.Round(new DriveInfo(mountPath).TotalSize / (1024d * 1024d * 1024d));
-            if (logGrowth)
-            {
-                AgentLog.VolumeGrown(logger, mountPath, size);
-            }
-
-            return new VolumeGrown(nodeId, mountPath, size);
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
-            return new VolumeGrowthFailed($"Measuring {mountPath} failed: {exception.Message}");
-        }
-    }
-
     private async Task ReportDrainCompleteAsync(string nodeId, CancellationToken cancellationToken)
     {
         await outbox.EnqueueAsync(new DrainComplete(nodeId), cancellationToken);
@@ -414,22 +376,46 @@ public sealed class NodeMaintenance(
 
     private async Task RunGrowVolumeAsync(GrowVolumeWork work, CancellationToken cancellationToken)
     {
-        var outcome = await GrowVolumeAsync(work.NodeId, work.MountPath, cancellationToken);
+        if (work.Session.IsCancellationRequested)
+        {
+            await GrowDropped(work.MountPath);
+            return;
+        }
+
+        var outcome = await volumeGrowth.GrowVolumeAsync(work.NodeId, work.MountPath, work.AttachedDevice, work.ExpectedVolumeIdentity, work.Identity, cancellationToken);
         var task = outcome switch
         {
-            VolumeGrown message => outbox.EnqueueAsync(message, cancellationToken),
-            VolumeGrowthRejected failure => GrowFailed(work, failure.Message),
-            VolumeMountMissing failure => GrowFailed(work, failure.Message),
-            MaintenanceToolTimedOut failure => GrowFailed(work, failure.Message),
-            MaintenanceToolUnavailable failure => GrowFailed(work, failure.Message),
-            VolumeGrowthFailed failure => GrowFailed(work, failure.Message),
+            VolumeGrown message => ReportVolumeGrownAsync(work, message, cancellationToken),
+            VolumeGrowthRejected failure => GrowFailed(work.MountPath, failure.Message),
+            MaintenanceToolTimedOut failure => GrowFailed(work.MountPath, failure.Message),
+            MaintenanceToolUnavailable failure => GrowFailed(work.MountPath, failure.Message),
+            VolumeGrowthFailed failure => GrowFailed(work.MountPath, failure.Message),
         };
         await task;
     }
 
-    private ValueTask GrowFailed(GrowVolumeWork work, string reason)
+    private async ValueTask ReportVolumeGrownAsync(GrowVolumeWork work, VolumeGrown message, CancellationToken cancellationToken)
     {
-        AgentLog.VolumeGrowFailed(logger, work.MountPath, reason);
+        var target = VolumeGrowthExecutor.InspectExpectedVolume(work.MountPath, work.AttachedDevice, work.ExpectedVolumeIdentity, work.Identity, cancellationToken);
+        var task = target switch
+        {
+            GrowthDevice when work.Session.IsCancellationRequested => GrowDropped(work.MountPath),
+            GrowthDevice => outbox.EnqueueAsync(message with { VolumeId = work.VolumeId }, work.Session, cancellationToken),
+            VolumeGrowthRejected failure => GrowFailed(work.MountPath, failure.Message),
+            VolumeGrowthFailed failure => GrowFailed(work.MountPath, failure.Message),
+        };
+        await task;
+    }
+
+    private ValueTask GrowFailed(string mountPath, string reason)
+    {
+        AgentLog.VolumeGrowFailed(logger, mountPath, reason);
+        return ValueTask.CompletedTask;
+    }
+
+    private ValueTask GrowDropped(string mountPath)
+    {
+        AgentLog.VolumeGrowDropped(logger, mountPath);
         return ValueTask.CompletedTask;
     }
 
