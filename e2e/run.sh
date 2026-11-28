@@ -85,16 +85,47 @@ expect_code() {
 for tool in dotnet node npm npx curl jq ssh-keygen openssl setsid; do
   command -v "$tool" >/dev/null 2>&1 || die "missing required tool: $tool"
 done
+node -e 'import("node:sqlite").then((m) => { if (typeof m.backup !== "function") process.exit(1); }, () => process.exit(1))' ||
+  die "Node >= 22.16 is required (node:sqlite.backup()); found $(node --version)"
 
 cat > "$WORK/e2e.mjs" <<'JS'
-import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, request as httpRequest } from "node:http";
 import { createServer as createTcpServer, connect as connectTcp } from "node:net";
 import { connect as connectTls } from "node:tls";
 import { createHash } from "node:crypto";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const [command, ...args] = process.argv.slice(2);
+
+async function doSql(stateDir, table, sql, ...params) {
+  const { DatabaseSync, backup } = await import("node:sqlite");
+  const files = readdirSync(stateDir, { recursive: true }).map(String).filter((file) => file.endsWith(".sqlite"));
+  for (const file of files) {
+    const snapshotDir = mkdtempSync(join(tmpdir(), "e2e-do-sql-"));
+    const snapshot = join(snapshotDir, "snapshot.sqlite");
+    try {
+      const source = new DatabaseSync(join(stateDir, file), { readOnly: true });
+      try {
+        await backup(source, snapshot);
+      } finally {
+        source.close();
+      }
+      const db = new DatabaseSync(snapshot, { readOnly: true });
+      try {
+        if (db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(table) === undefined) continue;
+        process.stdout.write(`${JSON.stringify(db.prepare(sql).all(...params))}\n`);
+        return;
+      } finally {
+        db.close();
+      }
+    } finally {
+      rmSync(snapshotDir, { recursive: true, force: true });
+    }
+  }
+  throw new Error(`no Durable Object database with table ${table} among ${files.join(", ")} under ${stateDir}`);
+}
 const enc = new TextEncoder();
 const b64url = (bytes) => Buffer.from(bytes).toString("base64url");
 const fromB64url = (text) => new Uint8Array(Buffer.from(text, "base64url"));
@@ -308,12 +339,13 @@ async function fakeNode(url, secret, instanceId, poolKind, logFile, tlsDir) {
   let reconnect = false;
   let held = false;
   let dataVolumeGiB = 50;
+  let dataUsedPct = 10;
   let volumeSeq = 0;
   let probes = 0;
   const send = (message) => {
     if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
   };
-  const volumes = () => poolKind === "stateful" ? [{ mountPath: "/var/lib/ts-data", device: "/dev/oracleoci/oraclevdb", sizeGiB: dataVolumeGiB, usedPct: 10, identity: "by-uuid/0e2e0000-0000-4000-8000-00000000000b" }] : [];
+  const volumes = () => poolKind === "stateful" ? [{ mountPath: "/var/lib/ts-data", device: "/dev/oracleoci/oraclevdb", sizeGiB: dataVolumeGiB, usedPct: dataUsedPct, identity: "by-uuid/0e2e0000-0000-4000-8000-00000000000b" }] : [];
   const reports = () =>
     [...desired.values()].map((placement) => ({
       placementId: placement.placementId,
@@ -457,6 +489,11 @@ async function fakeNode(url, secret, instanceId, poolKind, logFile, tlsDir) {
     if (held) socket.close(1000, "e2e hold");
     else connect();
   });
+  process.on("SIGHUP", () => {
+    dataUsedPct = dataUsedPct > 75 ? 10 : 90;
+    record({ type: "data_used_pct", usedPct: dataUsedPct });
+    heartbeat();
+  });
   connect();
 }
 
@@ -470,10 +507,12 @@ switch (command) {
   case "pg-tls-probe": await pgTlsProbe(...args); break;
   case "oci-backplane": ociBackplane(...args); break;
   case "fake-node": await fakeNode(...args); break;
+  case "do-sql": await doSql(...args); break;
   default: throw new Error(`unknown helper command ${command}`);
 }
 JS
 helper() { node "$WORK/e2e.mjs" "$@"; }
+do_sql() { local seconds=$1; shift; timeout --kill-after=1 "$seconds" node "$WORK/e2e.mjs" do-sql "$WORK/wrangler-state" "$@"; }
 
 log "Building ts-orch CLI and TsOrch.AppHost"
 if [[ -n "${TS_ORCH_CLI_DIR:-}" && -f "$TS_ORCH_CLI_DIR/ts-orch.dll" ]]; then
@@ -616,6 +655,19 @@ ok "ts-orch seed + status --json reflect the fleet"
 api GET /api/fleet > "$WORK/fleet-live.json"
 jq -e --slurpfile want "$WORK/fleet.json" '. == $want[0] and (.netbird.managementUrl | startswith("https://"))' "$WORK/fleet-live.json" >/dev/null || die "GET /api/fleet does not return the seeded fleet.json"
 ok "GET /api/fleet returns the seeded fleet.json including netbird.managementUrl"
+fleet_rejected() {
+  local filter=$1 want=$2
+  if api POST /api/fleet/seed --data "$(jq -c "{fleet: ($filter)}" "$WORK/fleet.json")" > "$LOGS/fleet-rejected.json" 2>/dev/null; then
+    die "fleet seed accepted $filter"
+  fi
+  jq -e --arg want "$want" '.error.code == "validation" and (.error.message | contains($want))' "$LOGS/fleet-rejected.json" >/dev/null ||
+    die "fleet seed with $filter was not rejected with '$want'"
+}
+fleet_rejected '(.regions[] | select(.label == "gru") | .pools.worker) |= (.min = 51 | .max = 60)' "pools.worker.min must not exceed 50"
+fleet_rejected '(.regions[] | select(.label == "gru") | .pools.worker.max) |= 1.5' "pools.worker.min and pools.worker.max must be non-negative integers"
+fleet_rejected '(.regions[] | select(.label == "gru") | .pools.worker.min) |= -1' "pools.worker.min and pools.worker.max must be non-negative integers"
+api GET /api/fleet | jq -e --slurpfile want "$WORK/fleet.json" '. == $want[0]' >/dev/null || die "a rejected fleet seed changed the stored fleet config"
+ok "fleet seed rejects pools.worker.min above WORKER_POOL_MAX (50) and non-integer pool sizes without changing stored config"
 "${TS[@]}" netbird --help > "$LOGS/netbird-help.txt" || die "ts-orch netbird --help failed"
 ok "ts-orch netbird --help succeeds"
 "${TS[@]}" diff -f "$WORK/services" | tee "$LOGS/diff.txt"
@@ -651,7 +703,36 @@ openssl x509 -in "$WORK/edge-run/tls/cert.pem" -noout -checkend 86400 >/dev/null
 initial_tls() { jq -se 'any(.[]; .type == "sync_tls" and .connection == 1)' "$WORK/fake-s1.jsonl" >/dev/null; }
 wait_for "$STATEFUL_NODE received initial sync_tls on its first connection" 60 initial_tls
 chaos "$(jq -cn --arg id "$STATEFUL_NODE" '{kind: "fill_disk", nodeId: $id, usedPct: 90}')" >/dev/null
-ok "fill_disk injected on $STATEFUL_NODE (volume grow verified later)"
+ok "fill_disk injected on $STATEFUL_NODE"
+volume_grown() { curl -sf "$OCI/_mock/state" | jq -e --arg id "$VOLUME_ID" '.volumes[$id] == 100 and ([.calls[] | select(.operation == "UpdateVolume" and .target == $id)] | length >= 1)' >/dev/null; }
+wait_for "oci-mock recorded UpdateVolume(100 GB) for $VOLUME_ID" 180 volume_grown
+update_lost() { jq -se 'any(.[]; .type == "update_volume_lost" and .status == 200 and .staleGiB == 50)' "$WORK/oci-backplane.jsonl" >/dev/null; }
+wait_for "OCI accepted UpdateVolume but its response was lost and OCI still reports 50 GB" 30 update_lost
+grow_backoff() {
+  grep -ao '{"type":"autoscale_action_backoff"[^}]*}' "$LOGS/worker.log" |
+    jq -se --arg key "volume:$STATEFUL_NODE" 'any(.[]; .action == "grow_volume" and .key == $key and .failures == 1 and .retryAt - .at == 300000)' >/dev/null
+}
+wait_for "the failed grow_volume recorded a durable 5 minute autoscale_failures backoff for volume:$STATEFUL_NODE" 30 grow_backoff
+GROW_RETRY_AT="$(grep -ao '{"type":"autoscale_action_backoff"[^}]*}' "$LOGS/worker.log" |
+  jq -se --arg key "volume:$STATEFUL_NODE" '[.[] | select(.action == "grow_volume" and .key == $key and .failures == 1 and .retryAt - .at == 300000) | .retryAt] | max')" ||
+  die "could not read the logged grow_volume retryAt for volume:$STATEFUL_NODE"
+backoff_persisted() {
+  local now
+  while true; do
+    now=$(( $(date +%s) * 1000 ))
+    if node "$1" do-sql "$2" kv_state "SELECT value FROM kv_state WHERE key = 'autoscale_failures'" > "$3/do-sql-autoscale-failures.json" 2>>"$3/do-sql.err" &&
+      jq -e --arg key "volume:$4" --argjson now "$now" --argjson retry "$5" \
+        'length == 1 and (.[0].value | fromjson | .[$key] | . != null and .failures == 1 and .retryAt == $retry and .retryAt > $now)' \
+        "$3/do-sql-autoscale-failures.json" >/dev/null; then
+      return 0
+    fi
+    sleep 0.25
+  done
+}
+timeout --kill-after=1 9 bash -c "$(declare -f backoff_persisted); backoff_persisted \"\$@\"" backoff_persisted \
+  "$WORK/e2e.mjs" "$WORK/wrangler-state" "$LOGS" "$STATEFUL_NODE" "$GROW_RETRY_AT" ||
+  die "kv_state.autoscale_failures did not persist a future 5 minute grow_volume backoff for volume:$STATEFUL_NODE within 10 s"
+ok "kv_state.autoscale_failures persisted the grow_volume failure for volume:$STATEFUL_NODE with a future 5 minute retryAt"
 
 log "2b. ts-orch secrets check and MCP over stdio"
 "${TS[@]}" secrets check -f "$WORK/services" > "$LOGS/secrets-check.txt" 2>&1 || die "ts-orch secrets check failed"
@@ -808,10 +889,6 @@ grep -q "simulated log line from $EXEC_NODE" "$LOGS/logs-fake.txt" || die "ts-or
 ok "ts-orch logs streamed node output"
 
 log "5e. Disk >75% sustained 5 minutes (backfilled history) -> OCI UpdateVolume with a lost response and a delayed OCI size across a reconnect"
-volume_grown() { curl -sf "$OCI/_mock/state" | jq -e --arg id "$VOLUME_ID" '.volumes[$id] == 100 and ([.calls[] | select(.operation == "UpdateVolume" and .target == $id)] | length >= 1)' >/dev/null; }
-wait_for "oci-mock recorded UpdateVolume(100 GB) for $VOLUME_ID" 60 volume_grown
-update_lost() { jq -se 'any(.[]; .type == "update_volume_lost" and .status == 200 and .staleGiB == 50)' "$WORK/oci-backplane.jsonl" >/dev/null; }
-wait_for "OCI accepted UpdateVolume but its response was lost and OCI still reports 50 GB" 30 update_lost
 chaos "$(jq -cn --arg id "$STATEFUL_NODE" '{kind: "fill_disk", nodeId: $id, usedPct: 0}')" >/dev/null
 disk_below() {
   api GET /api/nodes | jq -e --arg id "$STATEFUL_NODE" \
@@ -874,6 +951,49 @@ api GET /api/events | jq -e --arg node "$STATEFUL_NODE" \
   '[.events[] | select(.kind == "volume_grown" and .subject == $node)] | length == 1' >/dev/null ||
   die "duplicate volume_grown(97) was recorded more than once for $STATEFUL_NODE"
 ok "lost UpdateVolume's volume_resize_target survived a disconnect with OCI still on the old size, then grew once OCI reported 100 GB AVAILABLE and cleared within ext4 tolerance across a duplicate report and reconnect"
+DATA_VOLUME_IDENTITY="by-uuid/0e2e0000-0000-4000-8000-00000000000b"
+mixed_window() { local second=$(( $(date +%s) % 60 )); (( second >= 15 && second <= 30 )); }
+low_sample_in_minute() {
+  do_sql 5 data_disk_samples \
+    "SELECT COUNT(*) AS low FROM data_disk_samples WHERE node_id = ? AND synthetic = 0 AND identity = ? AND ts >= ? AND ts < ? AND disk_pct = 10" \
+    "$STATEFUL_NODE" "$DATA_VOLUME_IDENTITY" "$1" "$(( $1 + 60000 ))" 2>>"$LOGS/do-sql.err" |
+    jq -e '.[0].low > 0' >/dev/null
+}
+DISK_MIXED_MINUTE=
+for _ in {1..3}; do
+  wait_for "the wall clock reached second 15-30 of a minute, leaving 30 s for a 90% sample after a 10% one" 70 mixed_window
+  minute=$(( $(date +%s) / 60 * 60000 ))
+  while (( $(date +%s) * 1000 < minute + 40000 )); do
+    if low_sample_in_minute "$minute"; then DISK_MIXED_MINUTE=$minute; break; fi
+    sleep 0.5
+  done
+  [[ -n $DISK_MIXED_MINUTE ]] && break
+done
+[[ -n $DISK_MIXED_MINUTE ]] || die "data_disk_samples never persisted a measured 10% $DATA_VOLUME_IDENTITY sample for $STATEFUL_NODE by second 40 of a minute"
+ok "data_disk_samples persisted a measured 10% $DATA_VOLUME_IDENTITY sample for $STATEFUL_NODE in minute $DISK_MIXED_MINUTE before the switch to 90%"
+kill -HUP "$FAKE_S1_PID"
+disk_above() {
+  api GET /api/nodes | jq -e --arg id "$STATEFUL_NODE" \
+    '[.nodes[] | select(.id == $id) | .volumes[] | select(.mountPath == "/var/lib/ts-data") | .usedPct] | length == 1 and all(. > 75)' >/dev/null
+}
+wait_for "$STATEFUL_NODE reported 90% data volume usage after its 10% samples" 10 disk_above
+low_then_high() {
+  do_sql 5 data_disk_samples "SELECT ts, disk_pct FROM data_disk_samples WHERE node_id = ? AND synthetic = 0 AND identity = ? ORDER BY ts" \
+    "$STATEFUL_NODE" "$DATA_VOLUME_IDENTITY" 2>>"$LOGS/do-sql.err" |
+    tee "$LOGS/do-sql-data-disk.json" | jq -e --argjson minute "$DISK_MIXED_MINUTE" '[.[] | select(.ts >= $minute and .ts < $minute + 60000)] |
+      ([.[] | select(.disk_pct == 10) | .ts] | min) as $low | ([.[] | select(.disk_pct == 90) | .ts] | max) as $high |
+      $low != null and $high != null and $low < $high' >/dev/null
+}
+wait_for "data_disk_samples stored an exact 10% then 90% measured $DATA_VOLUME_IDENTITY sample for $STATEFUL_NODE in minute $DISK_MIXED_MINUTE" 30 low_then_high
+min_data_disk() {
+  do_sql 5 data_disk_1m \
+    "SELECT bucket, min_disk_pct FROM data_disk_1m WHERE node_id = ? AND bucket = ?" "$STATEFUL_NODE" "$DISK_MIXED_MINUTE" 2>>"$LOGS/do-sql.err" | tee "$LOGS/do-sql.json" |
+    jq -e 'length == 1 and .[0].min_disk_pct == 10' >/dev/null
+}
+wait_for "data_disk_1m.min_disk_pct kept the measured 10% minimum of minute $DISK_MIXED_MINUTE after $STATEFUL_NODE rose to 90% within it" 30 min_data_disk
+disk_above || die "$STATEFUL_NODE no longer reports its latest 90% data volume usage"
+kill -HUP "$FAKE_S1_PID"
+wait_for "$STATEFUL_NODE reported 10% data volume usage again" 10 disk_below
 
 log "5f. Node drain"
 "${TS[@]}" node drain e2e-w1 > "$LOGS/drain-fake.txt"

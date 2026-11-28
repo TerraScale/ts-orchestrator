@@ -1,5 +1,18 @@
 import type { MetricsPoint10s, MetricsPoint1m, NodeInfo, PlacementInfo, RegionConfig, ServiceSpec, VolumeInfo } from "./protocol";
-import { DATA_VOLUME_PATH, allocatableCpuMilli, allocatableMemMiB, type UnschedulableEntry } from "./scheduler";
+import { DATA_VOLUME_PATH, DEFAULT_HEARTBEAT_TIMEOUT_MS, allocatableCpuMilli, allocatableMemMiB, type UnschedulableEntry } from "./scheduler";
+
+export interface DataDiskPoint {
+  nodeId: string;
+  identity: string;
+  ts: number;
+  usedPct: number;
+}
+
+export interface ActionFailure {
+  failures: number;
+  retryAt: number;
+  instanceId?: string;
+}
 
 export interface AutoscaleInput {
   regions: RegionConfig[];
@@ -9,11 +22,15 @@ export interface AutoscaleInput {
   unschedulable: UnschedulableEntry[];
   metrics10s: MetricsPoint10s[];
   metrics1m: MetricsPoint1m[];
+  dataDisk: DataDiskPoint[];
   cooldowns: Map<string, number>;
+  failures: ReadonlyMap<string, ActionFailure>;
   nowMs: number;
   verifiedVolumeNodeIds: ReadonlySet<string>;
   poolIds?: Map<string, string>;
   drainReasons?: Map<string, string>;
+  settledDetachInstanceIds?: ReadonlySet<string>;
+  unsettledDetachInstanceIds?: ReadonlySet<string>;
 }
 
 export type AutoscaleAction =
@@ -24,9 +41,11 @@ export type AutoscaleAction =
       ociRegion: string;
       compartmentId: string;
       poolId: string;
+      minSize: number;
       maxSize: number;
       reason: string;
     }
+  | { kind: "reap_unjoined"; region: string; ociRegion: string; compartmentId: string; poolId: string; reason: string }
   | { kind: "drain_for_scale_down"; region: string; poolId: string; nodeId: string; reason: string }
   | {
       kind: "terminate_drained_worker";
@@ -79,6 +98,15 @@ export const VOLUME_SUSTAIN_MS = 300_000;
 export const VOLUME_GROW_GIB = 50;
 export const VOLUME_MAX_GIB = 250;
 export const VOLUME_COOLDOWN_MS = 1_800_000;
+export const WORKER_POOL_MAX = 50;
+
+export function workerPoolBoundsOf(min: unknown, max: unknown): { min: number; max: number } | undefined {
+  if (typeof min !== "number" || typeof max !== "number" || !Number.isSafeInteger(min) || !Number.isSafeInteger(max) ||
+      min < 0 || max < 0 || min > max) return undefined;
+  return { min: Math.min(min, WORKER_POOL_MAX), max: Math.min(max, WORKER_POOL_MAX) };
+}
+export const ACTION_FAILURE_BACKOFF_BASE_MS = 300_000;
+export const ACTION_FAILURE_BACKOFF_MAX_MS = 21_600_000;
 export const HOT_CPU_PCT = 80;
 export const HOT_PSI = 25;
 export const HOT_MEM_RATIO = 0.85;
@@ -89,6 +117,10 @@ export const OCI_POOL_RUNNING_STATE = "RUNNING";
 export const INSTANCE_ID_LABEL = "oci.instance-id";
 export const INSTANCE_POOL_ID_LABEL = "oci.instance-pool-id";
 export const DATA_VOLUME_ID_LABEL = "oci.data-volume-id";
+
+export function isOciInstanceId(instanceId: string | undefined): instanceId is string {
+  return instanceId !== undefined && instanceId.startsWith("ocid1.instance.");
+}
 
 const MINUTE_MS = 60_000;
 const INACTIVE_STATES: ReadonlySet<string> = new Set(["stopped", "failed", "unschedulable"]);
@@ -110,30 +142,39 @@ export type PoolScaleUpBlockReason =
   | "pool_not_running"
   | "unjoined_workers_pending"
   | "enrollment_failure_backoff"
-  | "pool_at_max";
+  | "pool_at_max"
+  | "invalid_pool_size";
 
 export type PoolScaleUpPlan =
-  | { kind: "scale"; newSize: number }
-  | { kind: "blocked"; reason: PoolScaleUpBlockReason };
+  | { kind: "scale"; newSize: number; floorRestore: boolean }
+  | { kind: "blocked"; reason: PoolScaleUpBlockReason; floorRestore: boolean };
 
 export interface PoolScaleUpInput {
   ociPoolSize: number;
   ociPoolState: string;
   registeredWorkers: number;
+  minSize: number;
   maxSize: number;
   enrollmentFailedAt: number | undefined;
   nowMs: number;
 }
 
 export function planPoolScaleUp(input: PoolScaleUpInput): PoolScaleUpPlan {
-  if (input.ociPoolState !== OCI_POOL_RUNNING_STATE) return { kind: "blocked", reason: "pool_not_running" };
-  if (input.ociPoolSize > input.registeredWorkers) return { kind: "blocked", reason: "unjoined_workers_pending" };
-  if (input.enrollmentFailedAt !== undefined && input.nowMs - input.enrollmentFailedAt < POOL_ENROLLMENT_FAILURE_BACKOFF_MS) {
-    return { kind: "blocked", reason: "enrollment_failure_backoff" };
+  if (!Number.isSafeInteger(input.maxSize) || input.maxSize < 0 || !Number.isSafeInteger(input.ociPoolSize) || input.ociPoolSize < 0) {
+    return { kind: "blocked", reason: "invalid_pool_size", floorRestore: false };
   }
-  const newSize = Math.min(input.maxSize, input.ociPoolSize + 1);
-  if (newSize <= input.ociPoolSize) return { kind: "blocked", reason: "pool_at_max" };
-  return { kind: "scale", newSize };
+  if (input.ociPoolState !== OCI_POOL_RUNNING_STATE) return { kind: "blocked", reason: "pool_not_running", floorRestore: false };
+  const floor = Math.min(input.minSize, input.maxSize, WORKER_POOL_MAX);
+  if (input.ociPoolSize < floor) return { kind: "scale", newSize: floor, floorRestore: true };
+  if (input.ociPoolSize > input.registeredWorkers) return { kind: "blocked", reason: "unjoined_workers_pending", floorRestore: restoresWorkerFloor(input.registeredWorkers, floor, input.ociPoolSize) };
+  const penalized = input.enrollmentFailedAt !== undefined && input.nowMs - input.enrollmentFailedAt < POOL_ENROLLMENT_FAILURE_BACKOFF_MS;
+  const newSize = Math.min(input.maxSize, WORKER_POOL_MAX, penalized ? input.minSize : Math.max(input.ociPoolSize + 1, input.minSize));
+  if (newSize <= input.ociPoolSize) return { kind: "blocked", reason: penalized ? "enrollment_failure_backoff" : "pool_at_max", floorRestore: false };
+  return { kind: "scale", newSize, floorRestore: penalized };
+}
+
+export function restoresWorkerFloor(registeredWorkers: number, floor: number | undefined, ociPoolSize?: number): boolean {
+  return floor !== undefined && (registeredWorkers < floor || (ociPoolSize !== undefined && ociPoolSize <= floor));
 }
 
 export function oldestUnjoinedMember<T extends { id: string; createdAt: number }>(
@@ -161,6 +202,50 @@ export function volumeGrowCooldownKey(nodeId: string): string {
   return `volume:${nodeId}`;
 }
 
+export function autoscaleActionKey(action: AutoscaleAction): string {
+  switch (action.kind) {
+    case "scale_replicas":
+      return `replicas:${action.serviceName}:${action.region}`;
+    case "scale_pool_up":
+      return poolScaleUpCooldownKey(action.region, action.poolId);
+    case "reap_unjoined":
+      return reapUnjoinedFailureKey(action.region, action.poolId);
+    case "drain_for_scale_down":
+      return poolScaleDownCooldownKey(action.region, action.poolId);
+    case "terminate_drained_worker":
+      return terminateWorkerFailureKey(action.region, action.nodeId);
+    case "grow_volume":
+      return volumeGrowCooldownKey(action.nodeId);
+  }
+}
+
+export function terminateWorkerFailureKey(region: string, nodeId: string): string {
+  return `pool-terminate:${region}:${nodeId}`;
+}
+
+export function reapUnjoinedFailureKey(region: string, poolId: string): string {
+  return `pool-reap:${region}:${poolId}`;
+}
+
+export function poolListFailureKey(region: string, poolId: string): string {
+  return `pool-list:${region}:${poolId}`;
+}
+
+export function nextActionFailure(previous: ActionFailure | undefined, nowMs: number): ActionFailure {
+  const failures = previous === undefined || actionFailureExpired(previous, nowMs) ? 1 : previous.failures + 1;
+  const delayMs = Math.min(ACTION_FAILURE_BACKOFF_MAX_MS, ACTION_FAILURE_BACKOFF_BASE_MS * 2 ** Math.min(failures - 1, 16));
+  return { failures, retryAt: nowMs + delayMs };
+}
+
+export function actionFailureExpired(failure: ActionFailure, nowMs: number): boolean {
+  return failure.retryAt + ACTION_FAILURE_BACKOFF_MAX_MS <= nowMs;
+}
+
+export function actionBackedOff(failures: ReadonlyMap<string, ActionFailure>, action: AutoscaleAction, nowMs: number): boolean {
+  const failure = failures.get(autoscaleActionKey(action));
+  return failure !== undefined && failure.retryAt > nowMs;
+}
+
 export function hasVolumeGrowthBudget(last: number | undefined, now: number): boolean {
   return last === undefined || now - last >= VOLUME_COOLDOWN_MS;
 }
@@ -173,7 +258,7 @@ export function volumeReachedTarget(reportedGiB: number, targetGiB: number, prev
   return reportedGiB >= floor;
 }
 
-function cooled(cooldowns: Map<string, number>, key: string, nowMs: number, windowMs: number): boolean {
+export function cooled(cooldowns: Map<string, number>, key: string, nowMs: number, windowMs: number): boolean {
   const last = cooldowns.get(key);
   return last === undefined || last + windowMs <= nowMs;
 }
@@ -242,7 +327,9 @@ function evaluateReplicas(input: AutoscaleInput, regionLabels: Set<string>, cool
       const upKey = `replica-up:${service.name}:${region}`;
       const lastKey = `replica-last:${service.name}:${region}`;
       const emit = (desiredReplicas: number, reason: string): void => {
-        actions.push({ kind: "scale_replicas", serviceName: service.name, region, desiredReplicas, reason });
+        const action: AutoscaleAction = { kind: "scale_replicas", serviceName: service.name, region, desiredReplicas, reason };
+        if (actionBackedOff(input.failures, action, input.nowMs)) return;
+        actions.push(action);
         cooldowns.set(lastKey, input.nowMs);
         if (desiredReplicas > current) cooldowns.set(upKey, input.nowMs);
       };
@@ -319,7 +406,7 @@ function sustainedHot(nodes: NodeInfo[], metrics1m: MetricsPoint1m[], nowMs: num
   return true;
 }
 
-function activePlacementCount(nodeId: string, placements: PlacementInfo[]): number {
+export function activePlacementCount(nodeId: string, placements: PlacementInfo[]): number {
   return placements.filter((p) => p.nodeId === nodeId && !INACTIVE_STATES.has(p.state)).length;
 }
 
@@ -383,98 +470,141 @@ function evaluatePools(input: AutoscaleInput, cooldowns: Map<string, number>): A
       .sort((a, b) => compareText(a.id, b.id));
     const observedWorkers = workers.filter((node) => node.status !== "down" && node.status !== "pending").length;
     const upKey = poolScaleUpCooldownKey(region.label, poolId);
-    const downKey = poolScaleDownCooldownKey(region.label, poolId);
     const unschedulable = input.unschedulable.filter((entry) => entry.region === region.label && entry.missing > 0);
     const activeNodes = regionNodes.filter((node) => node.status === "active" && !node.drainRequested);
     const hot = sustainedHot(activeNodes, input.metrics1m, input.nowMs);
+    const bounds = workerPoolBoundsOf(region.pools?.worker?.min, region.pools?.worker?.max);
+    const reapCooled = cooled(cooldowns, reapUnjoinedFailureKey(region.label, poolId), input.nowMs, POOL_UP_COOLDOWN_MS);
+    const reap = (reason: string): AutoscaleAction =>
+      ({ kind: "reap_unjoined", region: region.label, ociRegion: region.ociRegion, compartmentId: region.compartmentId, poolId, reason });
 
     if (unschedulable.length > 0 || hot) {
-      if (
-        observedWorkers < region.pools.worker.max &&
-        cooled(cooldowns, upKey, input.nowMs, POOL_UP_COOLDOWN_MS)
-      ) {
-        const reason =
-          unschedulable.length > 0
-            ? `unschedulable:${unschedulable.map((entry) => `${entry.serviceName}x${entry.missing}`).join(",")}`
-            : "sustained_high_utilization";
-        actions.push({
+      const reason =
+        unschedulable.length > 0
+          ? `unschedulable:${unschedulable.map((entry) => `${entry.serviceName}x${entry.missing}`).join(",")}`
+          : "sustained_high_utilization";
+      actions.push(...drainedWorkerTerminations(input, region, poolId, workers)
+        .filter((action) => !actionBackedOff(input.failures, action, input.nowMs)));
+      if (bounds !== undefined && observedWorkers < bounds.max && cooled(cooldowns, upKey, input.nowMs, POOL_UP_COOLDOWN_MS)) {
+        const scaleUp: AutoscaleAction = {
           kind: "scale_pool_up",
           region: region.label,
           ociRegion: region.ociRegion,
           compartmentId: region.compartmentId,
           poolId,
-          maxSize: region.pools.worker.max,
+          minSize: bounds.min,
+          maxSize: bounds.max,
           reason,
-        });
+        };
+        if (!actionBackedOff(input.failures, scaleUp, input.nowMs)) {
+          actions.push(scaleUp);
+          continue;
+        }
       }
+      if (reapCooled) actions.push(reap(reason));
       continue;
     }
 
-    let terminating = false;
-    const minWorkers = Math.max(0, region.pools.worker.min);
-    let remainingActiveWorkers = workers.filter((worker) => worker.status === "active" && !worker.drainRequested).length;
-    for (const worker of workers) {
-      if (!worker.drainRequested) continue;
-      if (worker.status !== "drained" && worker.status !== "down") continue;
-      const drainReason = input.drainReasons?.get(worker.id);
-      if (drainReason === undefined || !drainReason.startsWith("autoscaler:")) continue;
-      if (remainingActiveWorkers < minWorkers) continue;
-      if (activePlacementCount(worker.id, input.placements) > 0) continue;
-      const instanceId = worker.labels[INSTANCE_ID_LABEL];
-      if (instanceId === undefined || instanceId.length === 0) continue;
-      actions.push({
-        kind: "terminate_drained_worker",
+    const scaleDown = evaluatePoolScaleDown(input, region, poolId, workers, regionNodes, servicesByName, cooldowns)
+      .filter((action) => !actionBackedOff(input.failures, action, input.nowMs));
+    actions.push(...scaleDown);
+    if (bounds !== undefined && observedWorkers < bounds.min && cooled(cooldowns, upKey, input.nowMs, POOL_UP_COOLDOWN_MS)) {
+      const restore: AutoscaleAction = {
+        kind: "scale_pool_up",
         region: region.label,
         ociRegion: region.ociRegion,
-        nodeId: worker.id,
-        instanceId,
+        compartmentId: region.compartmentId,
         poolId,
-        reason: "drained_for_scale_down",
-      });
-      terminating = true;
+        minSize: bounds.min,
+        maxSize: bounds.max,
+        reason: `below_min_workers:${observedWorkers}<${bounds.min}`,
+      };
+      if (!actionBackedOff(input.failures, restore, input.nowMs)) {
+        actions.push(restore);
+        continue;
+      }
     }
-    if (terminating || workers.some((worker) => worker.drainRequested && worker.status !== "down" && worker.status !== "pending")) continue;
-
-    const activeWorkers = workers.filter((worker) => worker.status === "active" && !worker.drainRequested);
-    if (activeWorkers.length <= Math.max(0, region.pools.worker.min)) continue;
-    if (!cooled(cooldowns, downKey, input.nowMs, POOL_DOWN_COOLDOWN_MS)) continue;
-    if (!cooled(cooldowns, upKey, input.nowMs, POOL_DOWN_WINDOW_MS)) continue;
-    const requestOf = (node: NodeInfo): number =>
-      input.placements
-        .filter((p) => p.nodeId === node.id && !INACTIVE_STATES.has(p.state))
-        .reduce((sum, p) => sum + (servicesByName.get(p.serviceName)?.cpuRequestMilli ?? 0), 0);
-    const candidate = [...activeWorkers].sort(
-      (a, b) =>
-        activePlacementCount(a.id, input.placements) - activePlacementCount(b.id, input.placements) ||
-        requestOf(a) - requestOf(b) ||
-        compareText(a.id, b.id),
-    )[0];
-    if (candidate === undefined) continue;
-    if (!fitsWithout(input, region.label, candidate, regionNodes, servicesByName)) continue;
-    actions.push({
-      kind: "drain_for_scale_down",
-      region: region.label,
-      poolId,
-      nodeId: candidate.id,
-      reason: `headroom_fits_${activeWorkers.length - 1}_workers`,
-    });
+    const dispatchableScaleDown = scaleDown.filter((action) =>
+      action.kind !== "terminate_drained_worker" || input.unsettledDetachInstanceIds?.has(action.instanceId) !== true);
+    if (dispatchableScaleDown.length === 0 && reapCooled) actions.push(reap("unjoined_cleanup"));
   }
   return actions;
 }
 
-function sustainedDisk(node: NodeInfo, usedPct: number, input: AutoscaleInput): boolean {
-  if (usedPct <= VOLUME_USAGE_THRESHOLD_PCT) return false;
-  const since = input.nowMs - VOLUME_SUSTAIN_MS;
-  const fine = input.metrics10s.filter((point) => point.nodeId === node.id && point.ts >= since - 10_000);
-  if (fine.length > 0) {
-    const earliest = Math.min(...fine.map((point) => point.ts));
-    if (earliest <= since && fine.every((point) => point.diskUsedPct > VOLUME_USAGE_THRESHOLD_PCT)) return true;
-  }
-  const coarse = input.metrics1m.filter((point) => point.nodeId === node.id && point.ts > since - MINUTE_MS);
-  return (
-    minuteBuckets(coarse).size >= VOLUME_SUSTAIN_MS / MINUTE_MS &&
-    coarse.every((point) => point.diskPct > VOLUME_USAGE_THRESHOLD_PCT)
-  );
+function drainedWorkerTerminations(input: AutoscaleInput, region: RegionConfig, poolId: string, workers: readonly NodeInfo[]): AutoscaleAction[] {
+  return workers.flatMap((worker): AutoscaleAction[] => {
+    const instanceId = worker.labels[INSTANCE_ID_LABEL];
+    if (!worker.drainRequested || (worker.status !== "drained" && worker.status !== "down") ||
+        input.drainReasons?.get(worker.id)?.startsWith("autoscaler:") !== true ||
+        activePlacementCount(worker.id, input.placements) > 0 || !isOciInstanceId(instanceId) ||
+        input.settledDetachInstanceIds?.has(instanceId) === true) return [];
+    return [{
+      kind: "terminate_drained_worker",
+      region: region.label,
+      ociRegion: region.ociRegion,
+      nodeId: worker.id,
+      instanceId,
+      poolId,
+      reason: "drained_for_scale_down",
+    }];
+  });
+}
+
+function evaluatePoolScaleDown(
+  input: AutoscaleInput,
+  region: RegionConfig,
+  poolId: string,
+  workers: readonly NodeInfo[],
+  regionNodes: NodeInfo[],
+  servicesByName: Map<string, ServiceSpec>,
+  cooldowns: Map<string, number>,
+): AutoscaleAction[] {
+  const actions: AutoscaleAction[] = [];
+  const upKey = poolScaleUpCooldownKey(region.label, poolId);
+  const downKey = poolScaleDownCooldownKey(region.label, poolId);
+  const configuredMin = region.pools?.worker?.min;
+  if (configuredMin === undefined || !Number.isSafeInteger(configuredMin) || configuredMin < 0) return actions;
+  const minWorkers = Math.min(configuredMin, WORKER_POOL_MAX);
+  actions.push(...drainedWorkerTerminations(input, region, poolId, workers));
+  if (actions.length > 0 || workers.some((worker) => worker.drainRequested && worker.status !== "down" && worker.status !== "pending")) return actions;
+
+  const activeWorkers = workers.filter((worker) => worker.status === "active" && !worker.drainRequested);
+  if (activeWorkers.length <= minWorkers) return actions;
+  if (!cooled(cooldowns, downKey, input.nowMs, POOL_DOWN_COOLDOWN_MS)) return actions;
+  if (!cooled(cooldowns, upKey, input.nowMs, POOL_DOWN_WINDOW_MS)) return actions;
+  const requestOf = (node: NodeInfo): number =>
+    input.placements
+      .filter((p) => p.nodeId === node.id && !INACTIVE_STATES.has(p.state))
+      .reduce((sum, p) => sum + (servicesByName.get(p.serviceName)?.cpuRequestMilli ?? 0), 0);
+  const candidate = [...activeWorkers].sort(
+    (a, b) =>
+      activePlacementCount(a.id, input.placements) - activePlacementCount(b.id, input.placements) ||
+      requestOf(a) - requestOf(b) ||
+      compareText(a.id, b.id),
+  )[0];
+  if (candidate === undefined) return actions;
+  if (!fitsWithout(input, region.label, candidate, regionNodes, servicesByName)) return actions;
+  actions.push({
+    kind: "drain_for_scale_down",
+    region: region.label,
+    poolId,
+    nodeId: candidate.id,
+    reason: `headroom_fits_${activeWorkers.length - 1}_workers`,
+  });
+  return actions;
+}
+
+export function sustainedDataDisk(nodeId: string, identity: string, usedPct: number, samples: readonly DataDiskPoint[], nowMs: number): boolean {
+  if (usedPct <= VOLUME_USAGE_THRESHOLD_PCT || !hasStableVolumeIdentity(identity)) return false;
+  const since = nowMs - VOLUME_SUSTAIN_MS;
+  const own = samples.filter((point) => point.nodeId === nodeId && point.ts <= nowMs).sort((left, right) => left.ts - right.ts);
+  const startTs = own.filter((point) => point.ts <= since).at(-1)?.ts;
+  const window = startTs === undefined ? own : own.slice(own.findIndex((point) => point.ts === startTs));
+  const earliest = window[0];
+  const latest = window.at(-1);
+  if (earliest === undefined || latest === undefined || earliest.ts > since || nowMs - latest.ts > DEFAULT_HEARTBEAT_TIMEOUT_MS) return false;
+  return window.every((point, index) =>
+    point.identity === identity && point.usedPct > VOLUME_USAGE_THRESHOLD_PCT && point.ts - (window[index - 1]?.ts ?? point.ts) <= DEFAULT_HEARTBEAT_TIMEOUT_MS);
 }
 
 function evaluateVolumes(input: AutoscaleInput, cooldowns: Map<string, number>): AutoscaleAction[] {
@@ -490,7 +620,7 @@ function evaluateVolumes(input: AutoscaleInput, cooldowns: Map<string, number>):
     if (region === undefined || volume === undefined || target === null) continue;
     const key = volumeGrowCooldownKey(node.id);
     if (!hasVolumeGrowthBudget(cooldowns.get(key), input.nowMs)) continue;
-    if (!sustainedDisk(node, volume.usedPct, input)) continue;
+    if (!sustainedDataDisk(node.id, target.identity, volume.usedPct, input.dataDisk, input.nowMs)) continue;
     actions.push({
       kind: "grow_volume",
       region: region.label,
@@ -513,6 +643,6 @@ export function evaluateAutoscale(input: AutoscaleInput): {
     ...evaluateReplicas(input, regionLabels, cooldowns),
     ...evaluatePools(input, cooldowns),
     ...evaluateVolumes(input, cooldowns),
-  ];
+  ].filter((action) => !actionBackedOff(input.failures, action, input.nowMs));
   return { actions, updatedCooldowns: cooldowns };
 }

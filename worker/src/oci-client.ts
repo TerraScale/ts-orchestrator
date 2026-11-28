@@ -129,41 +129,103 @@ export class OciRestClient {
   }
 
   async listInstancePoolInstances(ociRegion: string, poolId: string, compartmentId: string, abort?: AbortSignal): Promise<PoolInstance[]> {
-    const query = new URLSearchParams({ compartmentId, limit: "50" });
     const instances: PoolInstance[] = [];
     const seenPages = new Set<string>();
+    let page: string | undefined;
     while (true) {
-      const { data, headers } = await this.#request(ociRegion, "GET", `/${API_VERSION}/instancePools/${encodeURIComponent(poolId)}/instances?${query}`, undefined, undefined, abort);
-      if (!Array.isArray(data)) throw new Error("OCI instance pool response is missing its member list");
-      for (const entry of data) {
-        const record = object(entry);
-        const createdAt = typeof record?.timeCreated === "string" ? Date.parse(record.timeCreated) : NaN;
-        if (typeof record?.id !== "string" || typeof record.state !== "string" || !Number.isFinite(createdAt)) {
-          throw new Error("OCI instance pool member is missing its identity, state, or creation time");
-        }
-        instances.push({ id: record.id, state: record.state.toUpperCase(), createdAt });
-      }
-      const page = headers.get("opc-next-page");
-      if (!page) return instances;
-      if (seenPages.has(page)) throw new Error("OCI instance pool pagination repeated a page token");
-      seenPages.add(page);
-      query.set("page", page);
+      const { items, nextPage } = await this.listInstancePoolInstancesPage(ociRegion, poolId, compartmentId, page, abort);
+      instances.push(...items);
+      if (nextPage === null) return instances;
+      if (seenPages.has(nextPage)) throw new Error("OCI instance pool pagination repeated a page token");
+      seenPages.add(nextPage);
+      page = nextPage;
     }
   }
 
-  updateInstancePool(ociRegion: string, poolId: string, size: number, etag: string, abort?: AbortSignal): Promise<unknown> {
-    return this.#request(ociRegion, "PUT", `/${API_VERSION}/instancePools/${encodeURIComponent(poolId)}`, { size }, etag, abort);
+  async listInstancePoolInstancesPage(
+    ociRegion: string,
+    poolId: string,
+    compartmentId: string,
+    page?: string,
+    abort?: AbortSignal,
+  ): Promise<{ items: PoolInstance[]; nextPage: string | null }> {
+    const query = new URLSearchParams({ compartmentId, limit: "50" });
+    if (page !== undefined) query.set("page", page);
+    const { data, headers } = await this.#request(ociRegion, "GET", `/${API_VERSION}/instancePools/${encodeURIComponent(poolId)}/instances?${query}`, undefined, undefined, abort);
+    if (!Array.isArray(data)) throw new Error("OCI instance pool response is missing its member list");
+    const items: PoolInstance[] = [];
+    for (const entry of data) {
+      const record = object(entry);
+      const createdAt = typeof record?.timeCreated === "string" ? Date.parse(record.timeCreated) : NaN;
+      if (typeof record?.id !== "string" || typeof record.state !== "string" || !Number.isFinite(createdAt)) {
+        throw new Error("OCI instance pool member is missing its identity, state, or creation time");
+      }
+      items.push({ id: record.id, state: record.state.toUpperCase(), createdAt });
+    }
+    const nextPage = headers.get("opc-next-page");
+    return { items, nextPage: nextPage !== null && nextPage.length > 0 ? nextPage : null };
   }
 
-  detachPoolInstance(ociRegion: string, poolId: string, instanceId: string, abort?: AbortSignal): Promise<unknown> {
-    return this.#request(
+  async getInstancePoolInstance(ociRegion: string, poolId: string, instanceId: string): Promise<{ lifecycleState: string } | null> {
+    const response = await this.#request(
+      ociRegion,
+      "GET",
+      `/${API_VERSION}/instancePools/${encodeURIComponent(poolId)}/instances/${encodeURIComponent(instanceId)}`,
+    ).catch((error: unknown) => {
+      if (error instanceof OciError && error.status === 404) return null;
+      throw error;
+    });
+    if (response === null) return null;
+    const lifecycleState = object(response.data)?.lifecycleState;
+    if (typeof lifecycleState !== "string" || lifecycleState.length === 0) {
+      throw new Error("OCI instance pool member response is missing its lifecycle state");
+    }
+    return { lifecycleState: lifecycleState.toUpperCase() };
+  }
+
+  async updateInstancePool(
+    ociRegion: string,
+    poolId: string,
+    size: number,
+    etag: string,
+    abort?: AbortSignal,
+    beforeDispatch?: () => boolean,
+  ): Promise<boolean> {
+    const request = await this.#signedRequest(ociRegion, "PUT", `/${API_VERSION}/instancePools/${encodeURIComponent(poolId)}`, { size }, etag, abort);
+    if (beforeDispatch !== undefined && !beforeDispatch()) return false;
+    await this.#dispatch(request);
+    return true;
+  }
+
+  async detachPoolInstance(
+    ociRegion: string,
+    poolId: string,
+    instanceId: string,
+    abort: AbortSignal | undefined,
+    decrementSize: boolean,
+    beforeDispatch: () => boolean,
+    retryToken?: string,
+  ): Promise<{ workRequestId: string | null } | null> {
+    const request = await this.#signedRequest(
       ociRegion,
       "POST",
       `/${API_VERSION}/instancePools/${encodeURIComponent(poolId)}/actions/detachInstance`,
-      { instanceId, isDecrementSize: true, isAutoTerminate: true },
+      { instanceId, isDecrementSize: decrementSize, isAutoTerminate: true },
       undefined,
       abort,
+      retryToken,
     );
+    if (!beforeDispatch()) return null;
+    const { headers } = await this.#dispatch(request);
+    const workRequestId = headers.get("opc-work-request-id");
+    return { workRequestId: workRequestId !== null && workRequestId.length > 0 ? workRequestId : null };
+  }
+
+  async getWorkRequestStatus(ociRegion: string, workRequestId: string): Promise<string> {
+    const { data } = await this.#request(ociRegion, "GET", `/${API_VERSION}/workRequests/${encodeURIComponent(workRequestId)}`);
+    const status = object(data)?.status;
+    if (typeof status !== "string" || status.length === 0) throw new Error("OCI work request response is missing its status");
+    return status.toUpperCase();
   }
 
   async statefulIdentity(
@@ -299,12 +361,13 @@ export class OciRestClient {
     return this.#key;
   }
 
-  async signedHeaders(method: string, url: URL, body: string | undefined): Promise<Headers> {
+  async signedHeaders(method: string, url: URL, body: string | undefined, retryToken?: string): Promise<Headers> {
     const headers = new Headers();
     const values = new Map<string, string>();
     values.set("(request-target)", `${method.toLowerCase()} ${url.pathname}${url.search}`);
     values.set("x-date", new Date().toUTCString());
     values.set("host", url.host);
+    if (retryToken !== undefined) values.set("opc-retry-token", retryToken);
     if (body !== undefined) {
       const bytes = new TextEncoder().encode(body);
       const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
@@ -332,11 +395,19 @@ export class OciRestClient {
     return this.#dispatch(await this.#signedRequest(ociRegion, method, path, payload, etag, abort));
   }
 
-  async #signedRequest(ociRegion: string, method: string, path: string, payload?: unknown, etag?: string, abort?: AbortSignal): Promise<SignedOciRequest> {
+  async #signedRequest(
+    ociRegion: string,
+    method: string,
+    path: string,
+    payload?: unknown,
+    etag?: string,
+    abort?: AbortSignal,
+    retryToken?: string,
+  ): Promise<SignedOciRequest> {
     const url = new URL(`${this.baseUrl(ociRegion)}${path}`);
     const body = method === "POST" || method === "PUT" ? (payload === null || payload === undefined ? "" : JSON.stringify(payload)) : undefined;
     abort?.throwIfAborted();
-    const headers = await this.signedHeaders(method, url, body);
+    const headers = await this.signedHeaders(method, url, body, retryToken);
     abort?.throwIfAborted();
     if (etag !== undefined) headers.set("if-match", etag);
     return { url, method, headers, body, abort };
