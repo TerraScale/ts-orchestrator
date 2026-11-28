@@ -36,6 +36,7 @@ public sealed class EventKindJsonConverter : JsonConverter<EventKind>
         EventKind.ReplicaScaleDown => "replica_scale_down",
         EventKind.PoolScaleUp => "pool_scale_up",
         EventKind.PoolScaleDown => "pool_scale_down",
+        EventKind.PoolWorkerReplaced => "pool_worker_replaced",
         EventKind.PoolScaleBlocked => "pool_scale_blocked",
         EventKind.NodeEnrolled => "node_enrolled",
         EventKind.NodeConnected => "node_connected",

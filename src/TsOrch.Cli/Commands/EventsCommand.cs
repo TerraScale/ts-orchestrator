@@ -54,6 +54,6 @@ internal static class EventsCommand
     private static string Format(EventRecord record)
     {
         var detail = string.Join(' ', record.Detail.OrderBy(static pair => pair.Key, StringComparer.Ordinal).Select(static pair => $"{pair.Key}={pair.Value}"));
-        return $"{Display.Time(record.Ts)}  {record.Region ?? "-",-6}  {record.Kind.WireName,-18}  {record.Subject}  {detail}".TrimEnd();
+        return $"{Display.Time(record.Ts)}  {record.Region ?? "-",-6}  {record.Kind.WireName,-20}  {record.Subject}  {detail}".TrimEnd();
     }
 }

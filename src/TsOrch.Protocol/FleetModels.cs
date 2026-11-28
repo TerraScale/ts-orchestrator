@@ -83,6 +83,7 @@ public enum EventKind
     ReplicaScaleDown,
     PoolScaleUp,
     PoolScaleDown,
+    PoolWorkerReplaced,
     PoolScaleBlocked,
     NodeEnrolled,
     NodeConnected,
