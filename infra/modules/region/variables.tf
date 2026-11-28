@@ -87,8 +87,8 @@ variable "stateful_data_gib" {
   default     = 50
 
   validation {
-    condition     = var.stateful_data_gib >= 50
-    error_message = "stateful_data_gib must be at least 50."
+    condition     = var.stateful_data_gib >= 50 && var.stateful_data_gib <= 250 && floor(var.stateful_data_gib) == var.stateful_data_gib
+    error_message = "stateful_data_gib must be a whole number between 50 and 250."
   }
 }
 

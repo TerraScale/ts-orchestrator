@@ -221,7 +221,7 @@ public sealed record class AutoscaleSpec(
     int ScaleUpCooldownSeconds,
     int ScaleDownCooldownSeconds);
 
-public sealed record class VolumeInfo(string MountPath, string Device, int SizeGiB, double UsedPct);
+public sealed record class VolumeInfo(string MountPath, string Device, int SizeGiB, double UsedPct, string? Identity = null);
 
 public sealed record class NodeInfo(
     string Id,

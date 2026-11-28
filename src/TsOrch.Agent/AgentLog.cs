@@ -86,14 +86,23 @@ internal static partial class AgentLog
     [LoggerMessage(1202, LogLevel.Warning, "Docker OOM event subscription interrupted: {Reason}")]
     public static partial void OomSubscriptionInterrupted(ILogger logger, string reason);
 
-    [LoggerMessage(1302, LogLevel.Information, "{MountPath} is not a dedicated block device mount; reporting current size without growing")]
-    public static partial void VolumeGrowSkipped(ILogger logger, string mountPath);
+    [LoggerMessage(1205, LogLevel.Warning, "Reading Linux mount table failed: {Reason}")]
+    public static partial void MountTableReadFailed(ILogger logger, string reason);
+
+    [LoggerMessage(1206, LogLevel.Warning, "Inspecting volume path {Path} failed: {Reason}")]
+    public static partial void VolumeProbeFailed(ILogger logger, string path, string reason);
 
     [LoggerMessage(1303, LogLevel.Information, "Grew {MountPath} to {SizeGiB} GiB")]
     public static partial void VolumeGrown(ILogger logger, string mountPath, int sizeGiB);
 
     [LoggerMessage(1304, LogLevel.Error, "Growing {MountPath} failed: {Reason}")]
     public static partial void VolumeGrowFailed(ILogger logger, string mountPath, string reason);
+
+    [LoggerMessage(1312, LogLevel.Warning, "Dropped grow_volume for {MountPath} because the backplane session that delivered it ended")]
+    public static partial void VolumeGrowDropped(ILogger logger, string mountPath);
+
+    [LoggerMessage(1313, LogLevel.Warning, "Dropped a queued acknowledgment because the backplane session that requested it ended")]
+    public static partial void OutboxSessionMessageDropped(ILogger logger);
 
     [LoggerMessage(1305, LogLevel.Information, "Agent {Version} is already current")]
     public static partial void UpgradeAlreadyCurrent(ILogger logger, string version);

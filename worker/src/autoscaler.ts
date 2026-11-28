@@ -1,4 +1,4 @@
-import type { MetricsPoint10s, MetricsPoint1m, NodeInfo, PlacementInfo, RegionConfig, ServiceSpec } from "./protocol";
+import type { MetricsPoint10s, MetricsPoint1m, NodeInfo, PlacementInfo, RegionConfig, ServiceSpec, VolumeInfo } from "./protocol";
 import { DATA_VOLUME_PATH, allocatableCpuMilli, allocatableMemMiB, type UnschedulableEntry } from "./scheduler";
 
 export interface AutoscaleInput {
@@ -11,6 +11,7 @@ export interface AutoscaleInput {
   metrics1m: MetricsPoint1m[];
   cooldowns: Map<string, number>;
   nowMs: number;
+  verifiedVolumeNodeIds: ReadonlySet<string>;
   poolIds?: Map<string, string>;
   drainReasons?: Map<string, string>;
 }
@@ -41,8 +42,26 @@ export type AutoscaleAction =
       region: string;
       ociRegion: string;
       nodeId: string;
+      target: VolumeGrowTarget;
       reason: string;
     };
+
+export type VolumeGrowTarget = { mountPath: string; device: string; identity: string };
+
+const STABLE_VOLUME_IDENTITY_PREFIX = "by-uuid/";
+
+export function hasStableVolumeIdentity(identity: unknown): identity is string {
+  return (
+    typeof identity === "string" &&
+    identity.startsWith(STABLE_VOLUME_IDENTITY_PREFIX) &&
+    identity.length > STABLE_VOLUME_IDENTITY_PREFIX.length &&
+    !identity.includes(",")
+  );
+}
+
+export function volumeGrowTarget(volume: VolumeInfo): VolumeGrowTarget | null {
+  return hasStableVolumeIdentity(volume.identity) ? { mountPath: volume.mountPath, device: volume.device, identity: volume.identity } : null;
+}
 
 export const REPLICA_UP_COOLDOWN_MS = 120_000;
 export const REPLICA_DOWN_COOLDOWN_MS = 600_000;
@@ -462,12 +481,13 @@ function evaluateVolumes(input: AutoscaleInput, cooldowns: Map<string, number>):
   const actions: AutoscaleAction[] = [];
   const regionsByLabel = new Map(input.regions.map((region) => [region.label, region]));
   const nodes = input.nodes
-    .filter((node) => node.poolKind === "stateful" && node.status !== "down")
+    .filter((node) => node.poolKind === "stateful" && node.status !== "down" && input.verifiedVolumeNodeIds.has(node.id))
     .sort((a, b) => compareText(a.id, b.id));
   for (const node of nodes) {
     const region = regionsByLabel.get(node.region);
     const volume = node.volumes.find((entry) => entry.mountPath === DATA_VOLUME_PATH);
-    if (region === undefined || volume === undefined) continue;
+    const target = volume === undefined ? null : volumeGrowTarget(volume);
+    if (region === undefined || volume === undefined || target === null) continue;
     const key = volumeGrowCooldownKey(node.id);
     if (!hasVolumeGrowthBudget(cooldowns.get(key), input.nowMs)) continue;
     if (!sustainedDisk(node, volume.usedPct, input)) continue;
@@ -476,6 +496,7 @@ function evaluateVolumes(input: AutoscaleInput, cooldowns: Map<string, number>):
       region: region.label,
       ociRegion: region.ociRegion,
       nodeId: node.id,
+      target,
       reason: `disk_usage_${Math.round(volume.usedPct)}pct`,
     });
   }

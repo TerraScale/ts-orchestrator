@@ -15,7 +15,9 @@ public sealed class NodeReportComposer(
         typeof(NodeReportComposer).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
         ?? throw new InvalidOperationException("TsOrch.Agent has no informational version.");
 
-    public async Task<Hello> ComposeHelloAsync(NodeSession session, CancellationToken cancellationToken)
+    private static readonly IReadOnlyList<string> Capabilities = [AgentCapabilities.GrowVolumeId];
+
+    public async Task<Hello> ComposeHelloAsync(NodeSession session, long volumeSeq, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(session);
         var capacity = await metrics.ReadCapacityAsync(cancellationToken);
@@ -32,23 +34,26 @@ public sealed class NodeReportComposer(
             capacity.MemTotalMiB,
             capacity.DiskTotalGiB,
             identity.Labels,
-            capacity.Volumes,
             AgentVersion,
-            FindNetBirdIpv4());
+            volumeSeq,
+            capacity.Volumes,
+            FindNetBirdIpv4(),
+            Capabilities);
     }
 
-    public async Task<Heartbeat> ComposeHeartbeatAsync(CancellationToken cancellationToken)
+    public async Task<Heartbeat> ComposeHeartbeatAsync(long volumeSeq, string? volumeChallenge, CancellationToken cancellationToken)
     {
-        var host = await metrics.CollectHostAsync(cancellationToken);
-        var volumes = await metrics.ReadVolumesAsync(cancellationToken);
+        var snapshot = await metrics.CollectHostSnapshotAsync(cancellationToken);
         return new Heartbeat(
             timeProvider.GetUtcNow().ToUnixTimeMilliseconds(),
             tracker.Snapshot(),
-            host,
+            snapshot.Metrics,
             metrics.ContainerSnapshot(),
+            volumeSeq,
             await metrics.ReadEdgeMetricsAsync(cancellationToken),
             FindNetBirdIpv4(),
-            volumes);
+            snapshot.Volumes,
+            volumeChallenge);
     }
 
     public static string? FindNetBirdIpv4()
@@ -84,4 +89,44 @@ public sealed class NodeReportComposer(
         Architecture.X64 => CpuArch.X64,
         var other => throw new PlatformNotSupportedException($"ts-orch agent does not support {other}."),
     };
+}
+
+public sealed class SessionVolumeReports(
+    NodeReportComposer reports,
+    NodeSession session,
+    Func<AgentMessage, CancellationToken, Task> send) : IDisposable
+{
+    private readonly SemaphoreSlim _gate = new(1, 1);
+    private long _volumeSeq;
+
+    public Task SendHelloAsync(CancellationToken cancellationToken) =>
+        SendAsync((volumeSeq, token) => reports.ComposeHelloAsync(session, volumeSeq, token), cancellationToken);
+
+    public Task SendHeartbeatAsync(CancellationToken cancellationToken) =>
+        SendAsync((volumeSeq, token) => reports.ComposeHeartbeatAsync(volumeSeq, null, token), cancellationToken);
+
+    public Task SendVolumeProbeAsync(ProbeVolumes probe, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(probe);
+        ArgumentException.ThrowIfNullOrWhiteSpace(probe.Challenge);
+        return SendAsync((volumeSeq, token) => reports.ComposeHeartbeatAsync(volumeSeq, probe.Challenge, token), cancellationToken);
+    }
+
+    public void Dispose() => _gate.Dispose();
+
+    private async Task SendAsync<TMessage>(Func<long, CancellationToken, Task<TMessage>> compose, CancellationToken cancellationToken)
+        where TMessage : AgentMessage
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var volumeSeq = ++_volumeSeq;
+            var message = await compose(volumeSeq, cancellationToken);
+            await send(message, cancellationToken);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
 }

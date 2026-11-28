@@ -22,11 +22,28 @@ export class OciError extends Error {
 
 type Bytes = Uint8Array<ArrayBuffer>;
 type OciResponse = { data: unknown; headers: Headers };
+type SignedOciRequest = { url: URL; method: string; headers: Headers; body: string | undefined; abort: AbortSignal | undefined };
 export type PoolInstance = { id: string; state: string; createdAt: number };
+export type OciVolumeState = { sizeGiB: number; lifecycleState: string };
+export type OciDataVolume = OciVolumeState & { attachmentId: string; id: string; etag: string; device: string; attachedAt: number };
+export type OciVolumeUpdate = { dispatched: false } | { dispatched: true; volume: OciVolumeState | null };
 
 function object(value: unknown): Record<string, unknown> | undefined {
   if (typeof value === "object" && value !== null && !Array.isArray(value)) return value as Record<string, unknown>;
   return undefined;
+}
+
+function volumeState(value: unknown, volumeId: string): OciVolumeState | null {
+  const data = object(value);
+  const sizeGiB = data?.sizeInGBs;
+  const lifecycleState = data?.lifecycleState;
+  if (data?.id !== volumeId || typeof sizeGiB !== "number" || !Number.isSafeInteger(sizeGiB) || sizeGiB <= 0 ||
+    typeof lifecycleState !== "string" || lifecycleState.length === 0) return null;
+  return { sizeGiB, lifecycleState };
+}
+
+export function ociVolumeReady(volume: OciVolumeState, targetGiB: number): boolean {
+  return volume.lifecycleState === "AVAILABLE" && volume.sizeGiB >= targetGiB;
 }
 
 const API_VERSION = "20160918";
@@ -176,24 +193,64 @@ export class OciRestClient {
     region: string,
     compartmentId: string,
     instanceId: string,
-  ): Promise<{ id: string; sizeGiB: number; etag: string } | null> {
+  ): Promise<OciDataVolume | null> {
     const identity = await this.statefulIdentity(ociRegion, region, compartmentId, instanceId);
     if (identity === null) return null;
     const { volumeId } = identity;
-    const query = new URLSearchParams({ compartmentId, instanceId, volumeId });
-    const attachments = await this.#request(ociRegion, "GET", `/${API_VERSION}/volumeAttachments?${query}`);
-    if (!Array.isArray(attachments.data) || !attachments.data.some((entry: unknown) => {
-      const attachment = object(entry);
-      return attachment?.instanceId === instanceId && attachment.volumeId === volumeId &&
-        attachment.lifecycleState === "ATTACHED" && attachment.isReadOnly === false && attachment.isShareable === false;
-    })) return null;
-
+    const attachment = await this.#dataVolumeAttachment(ociRegion, compartmentId, instanceId, volumeId);
+    if (attachment === null) return null;
     const volume = await this.#request(ociRegion, "GET", `/${API_VERSION}/volumes/${encodeURIComponent(volumeId)}`);
-    const data = object(volume.data);
-    const sizeGiB = data?.sizeInGBs;
+    const state = volumeState(volume.data, volumeId);
     const etag = volume.headers.get("etag");
-    if (data?.id !== volumeId || typeof sizeGiB !== "number" || !Number.isSafeInteger(sizeGiB) || sizeGiB <= 0 || !etag) return null;
-    return { id: volumeId, sizeGiB, etag };
+    if (state === null || !etag) return null;
+    return { ...attachment, ...state, id: volumeId, etag };
+  }
+
+  async #dataVolumeAttachment(
+    ociRegion: string,
+    compartmentId: string,
+    instanceId: string,
+    volumeId: string,
+  ): Promise<{ attachmentId: string; device: string; attachedAt: number } | null> {
+    const query = new URLSearchParams({ compartmentId, instanceId, limit: "100" });
+    const attachments: { id: string; device: string; entry: Record<string, unknown> }[] = [];
+    const seenPages = new Set<string>();
+    while (true) {
+      const { data, headers } = await this.#request(ociRegion, "GET", `/${API_VERSION}/volumeAttachments?${query}`);
+      if (!Array.isArray(data)) return null;
+      for (const entry of data as unknown[]) {
+        const attachment = object(entry);
+        if (attachment === undefined) return null;
+        if (attachment.lifecycleState === "DETACHED") continue;
+        if (attachment.instanceId !== instanceId || typeof attachment.id !== "string" || attachment.id.length === 0) return null;
+        const device = typeof attachment.device === "string" ? attachment.device.trim() : "";
+        attachments.push({ id: attachment.id, device, entry: attachment });
+      }
+      const page = headers.get("opc-next-page");
+      if (!page) break;
+      if (seenPages.has(page)) throw new Error("OCI volume attachment pagination repeated a page token");
+      seenPages.add(page);
+      query.set("page", page);
+    }
+    const owned = attachments.filter(({ entry }) => entry.volumeId === volumeId);
+    const [attachment] = owned;
+    if (attachment === undefined || owned.length !== 1) return null;
+    const { entry, device } = attachment;
+    const attachedAt = typeof entry.timeCreated === "string" ? Date.parse(entry.timeCreated) : Number.NaN;
+    if (entry.lifecycleState !== "ATTACHED" || entry.isReadOnly !== false || entry.isShareable !== false ||
+      !device.startsWith("/dev/") || !Number.isFinite(attachedAt) || attachedAt <= 0) return null;
+    if (attachments.some((other) => other.id !== attachment.id && other.device === device)) return null;
+    return { attachmentId: attachment.id, device, attachedAt };
+  }
+
+  async dataVolumeStillAttached(
+    ociRegion: string,
+    compartmentId: string,
+    instanceId: string,
+    volume: Pick<OciDataVolume, "id" | "attachmentId" | "device" | "attachedAt">,
+  ): Promise<boolean> {
+    const live = await this.#dataVolumeAttachment(ociRegion, compartmentId, instanceId, volume.id);
+    return live !== null && live.attachmentId === volume.attachmentId && live.device === volume.device && live.attachedAt === volume.attachedAt;
   }
 
   instanceAction(ociRegion: string, instanceId: string, action: OciInstanceAction): Promise<unknown> {
@@ -205,8 +262,18 @@ export class OciRestClient {
     );
   }
 
-  updateVolumeSize(ociRegion: string, volumeId: string, sizeInGBs: number, etag: string): Promise<unknown> {
-    return this.#request(ociRegion, "PUT", `/${API_VERSION}/volumes/${encodeURIComponent(volumeId)}`, { sizeInGBs }, etag);
+  async updateVolumeSize(
+    ociRegion: string,
+    compartmentId: string,
+    instanceId: string,
+    volume: OciDataVolume,
+    sizeInGBs: number,
+    beforeDispatch: () => boolean,
+  ): Promise<OciVolumeUpdate> {
+    const request = await this.#signedRequest(ociRegion, "PUT", `/${API_VERSION}/volumes/${encodeURIComponent(volume.id)}`, { sizeInGBs }, volume.etag);
+    if (!(await this.dataVolumeStillAttached(ociRegion, compartmentId, instanceId, volume)) || !beforeDispatch()) return { dispatched: false };
+    const { data } = await this.#dispatch(request);
+    return { dispatched: true, volume: volumeState(data, volume.id) };
   }
 
   baseUrl(ociRegion: string): string {
@@ -262,12 +329,21 @@ export class OciRestClient {
   }
 
   async #request(ociRegion: string, method: string, path: string, payload?: unknown, etag?: string, abort?: AbortSignal): Promise<OciResponse> {
+    return this.#dispatch(await this.#signedRequest(ociRegion, method, path, payload, etag, abort));
+  }
+
+  async #signedRequest(ociRegion: string, method: string, path: string, payload?: unknown, etag?: string, abort?: AbortSignal): Promise<SignedOciRequest> {
     const url = new URL(`${this.baseUrl(ociRegion)}${path}`);
     const body = method === "POST" || method === "PUT" ? (payload === null || payload === undefined ? "" : JSON.stringify(payload)) : undefined;
     abort?.throwIfAborted();
     const headers = await this.signedHeaders(method, url, body);
     abort?.throwIfAborted();
     if (etag !== undefined) headers.set("if-match", etag);
+    return { url, method, headers, body, abort };
+  }
+
+  async #dispatch({ url, method, headers, body, abort }: SignedOciRequest): Promise<OciResponse> {
+    abort?.throwIfAborted();
     const timeout = AbortSignal.timeout(OCI_TIMEOUT_MS);
     const signal = abort === undefined ? timeout : AbortSignal.any([abort, timeout]);
     const response = await fetch(url.toString(), body === undefined ? { method, headers, signal } : { method, headers, body, signal });

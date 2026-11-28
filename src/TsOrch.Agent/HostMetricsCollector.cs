@@ -2,60 +2,15 @@ using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text.Json;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Win32.SafeHandles;
 
 namespace TsOrch.Agent;
 
-public sealed record class NodeCapacity(int CpuTotalMilli, int MemTotalMiB, int DiskTotalGiB, IReadOnlyList<VolumeInfo> Volumes);
+public sealed record class NodeCapacity(int CpuTotalMilli, int MemTotalMiB, int DiskTotalGiB, IReadOnlyList<VolumeInfo>? Volumes);
 
-public sealed record class MountEntry(string Device, string MountPoint, string FileSystem);
+public sealed record class HostMetricsSnapshot(HostMetrics Metrics, IReadOnlyList<VolumeInfo>? Volumes);
 
-public static class MountTable
-{
-    public const string MountsFile = "/proc/self/mounts";
-
-    public static async Task<IReadOnlyList<MountEntry>> ReadAsync(CancellationToken cancellationToken)
-    {
-        if (!File.Exists(MountsFile))
-        {
-            return [];
-        }
-
-        List<MountEntry> entries = [];
-        foreach (var line in await File.ReadAllLinesAsync(MountsFile, cancellationToken))
-        {
-            var fields = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            if (fields.Length >= 3)
-            {
-                entries.Add(new MountEntry(Unescape(fields[0]), Unescape(fields[1]), fields[2]));
-            }
-        }
-
-        return entries;
-    }
-
-    public static MountEntry? FindContaining(IReadOnlyList<MountEntry> entries, string path)
-    {
-        ArgumentNullException.ThrowIfNull(entries);
-        var full = Path.GetFullPath(path).TrimEnd('/');
-        MountEntry? best = null;
-        foreach (var entry in entries)
-        {
-            var mountPoint = entry.MountPoint.TrimEnd('/');
-            var contains = mountPoint.Length == 0
-                || full == mountPoint
-                || full.StartsWith(mountPoint + "/", StringComparison.Ordinal);
-            if (contains && (best is null || entry.MountPoint.Length >= best.MountPoint.Length))
-            {
-                best = entry;
-            }
-        }
-
-        return best;
-    }
-
-    private static string Unescape(string value) =>
-        value.Replace("\\040", " ", StringComparison.Ordinal).Replace("\\011", "\t", StringComparison.Ordinal).Replace("\\134", "\\", StringComparison.Ordinal);
-}
+public readonly record struct VolumeReading(IReadOnlyList<VolumeInfo>? Volumes, double? MeasuredDataUsedPct, int? MeasuredDataTotalGiB);
 
 public sealed class HostMetricsCollector(
     DockerEngineClient docker,
@@ -155,7 +110,7 @@ public sealed class HostMetricsCollector(
         return [];
     }
 
-    public async Task<HostMetrics> CollectHostAsync(CancellationToken cancellationToken)
+    public async Task<HostMetricsSnapshot> CollectHostSnapshotAsync(CancellationToken cancellationToken)
     {
         var now = timeProvider.GetUtcNow();
         var cpu = await ReadCpuSampleAsync(cancellationToken);
@@ -176,9 +131,10 @@ public sealed class HostMetricsCollector(
             _lastNet = net ?? _lastNet;
         }
 
-        var volumes = await ReadVolumesAsync(cancellationToken);
-        var dataPct = volumes.Count > 0 ? volumes[0].UsedPct : 0d;
-        return new HostMetrics(
+        var reading = ReadVolumes();
+        var rootPct = DiskUsedPct("/");
+        var diskPct = reading.MeasuredDataUsedPct is { } dataPct ? Math.Max(rootPct, dataPct) : rootPct;
+        var host = new HostMetrics(
             now.ToUnixTimeMilliseconds(),
             Math.Round(cpuPct, 2),
             await ReadPressureAsync("/proc/pressure/cpu", cancellationToken),
@@ -186,10 +142,11 @@ public sealed class HostMetricsCollector(
             (int)((memory.TotalKiB - memory.AvailableKiB) / 1024),
             await ReadPressureAsync("/proc/pressure/memory", cancellationToken),
             await ReadPressureAsync("/proc/pressure/io", cancellationToken),
-            Math.Round(Math.Max(DiskUsedPct("/"), dataPct), 2),
+            Math.Round(diskPct, 2),
             rxBps,
             txBps,
             await ReadLoad1Async(cancellationToken));
+        return new HostMetricsSnapshot(host, reading.Volumes);
     }
 
     private async Task<IReadOnlyList<ContainerMetrics>> CollectContainersAsync(IReadOnlyList<ManagedContainer> containers, CancellationToken cancellationToken)
@@ -242,44 +199,212 @@ public sealed class HostMetricsCollector(
         }
     }
 
-    public async Task<IReadOnlyList<VolumeInfo>> ReadVolumesAsync(CancellationToken cancellationToken)
+    public VolumeReading ReadVolumes()
     {
-        if (!Directory.Exists(options.DataVolumePath))
+        if (string.IsNullOrWhiteSpace(options.DataVolumePath))
         {
-            return [];
+            return new VolumeReading([], null, null);
         }
 
         var normalizedDataPath = Path.GetFullPath(options.DataVolumePath).TrimEnd('/');
-        var mounts = await MountTable.ReadAsync(cancellationToken);
-        var mount = MountTable.FindContaining(mounts, normalizedDataPath);
-        if (string.Equals(normalizedDataPath, NodePaths.DataVolume, StringComparison.Ordinal)
-            && (mount is null || !string.Equals(mount.MountPoint.TrimEnd('/'), NodePaths.DataVolume, StringComparison.Ordinal)
-                || !mount.Device.StartsWith("/dev/", StringComparison.Ordinal)))
+        var statPath = normalizedDataPath.Length == 0 ? "/" : normalizedDataPath;
+        if (!OperatingSystem.IsLinux())
+        {
+            if (!Directory.Exists(statPath) || string.Equals(normalizedDataPath, NodePaths.DataVolume, StringComparison.Ordinal))
+            {
+                return new VolumeReading([], null, null);
+            }
+
+            var drive = new DriveInfo(statPath);
+            var usedPct = drive.TotalSize <= 0
+                ? 0d
+                : 100d * (drive.TotalSize - drive.AvailableFreeSpace) / drive.TotalSize;
+            return new VolumeReading(
+                [
+                    new VolumeInfo(
+                        statPath,
+                        "unknown",
+                        (int)Math.Round(drive.TotalSize / BytesPerGiB),
+                        Math.Round(usedPct, 2)),
+                ],
+                usedPct,
+                (int)Math.Round(drive.TotalSize / BytesPerGiB));
+        }
+
+        var opened = MountTable.OpenDirectoryReadOnly(statPath);
+        return opened switch
+        {
+            SafeFileHandle directoryHandle => ReadLinuxVolumes(directoryHandle, normalizedDataPath, statPath),
+            DirectoryMissing => new VolumeReading([], null, null),
+            DirectoryOpenFailed failed => new VolumeReading(ReportVolumeProbeFailed(statPath, failed.Message), null, null),
+        };
+    }
+
+    private VolumeReading ReadLinuxVolumes(SafeFileHandle directoryHandle, string normalizedDataPath, string statPath)
+    {
+        using (directoryHandle)
+        {
+            if (MountTable.TryReadDirectoryMountSnapshot(directoryHandle) is not { } snapshot)
+            {
+                return new VolumeReading(
+                    ReportVolumeProbeFailed(statPath, $"Inspecting mount metadata and filesystem usage for {statPath} failed."),
+                    null,
+                    null);
+            }
+
+            var read = MountTable.TryRead();
+            var volumes = read switch
+            {
+                IReadOnlyList<MountEntry> mounts => ResolveVolumes(mounts, normalizedDataPath, statPath, snapshot),
+                MountTableReadFailed failed => ReportMountTableReadFailed(failed.Message),
+            };
+            return new VolumeReading(volumes, snapshot.UsedPct, (int)Math.Round(snapshot.TotalBytes / BytesPerGiB));
+        }
+    }
+
+    private IReadOnlyList<VolumeInfo>? ResolveVolumes(
+        IReadOnlyList<MountEntry> mounts,
+        string normalizedDataPath,
+        string statPath,
+        DirectoryMountSnapshot snapshot)
+    {
+        return MountTable.ResolveDedicatedBlockMount(mounts, statPath, snapshot.Identity) switch
+        {
+            DedicatedBlockMount dedicatedMount => ResolveDedicatedVolumes(dedicatedMount, statPath, snapshot),
+            DedicatedBlockMountInconsistent inconsistent => ReportVolumeProbeFailed(statPath, inconsistent.Message),
+            DedicatedBlockMountMissing => ResolveNonDedicatedVolumes(mounts, normalizedDataPath, statPath, snapshot),
+        };
+    }
+
+    private IReadOnlyList<VolumeInfo>? ResolveDedicatedVolumes(
+        DedicatedBlockMount dedicatedMount,
+        string statPath,
+        DirectoryMountSnapshot snapshot)
+    {
+        return MountTable.ResolveVerifiedBlockNodes(dedicatedMount) switch
+        {
+            VerifiedBlockNodes verifiedNodes => ResolveVerifiedVolume(dedicatedMount, verifiedNodes, statPath, snapshot),
+            BlockNodeValidationRejected rejected => ReportVolumeProbeFailed(statPath, rejected.Message),
+            BlockNodeValidationFailed failed => ReportVolumeProbeFailed(statPath, failed.Message),
+        };
+    }
+
+    private IReadOnlyList<VolumeInfo>? ResolveVerifiedVolume(
+        DedicatedBlockMount dedicatedMount,
+        VerifiedBlockNodes verifiedNodes,
+        string statPath,
+        DirectoryMountSnapshot snapshot)
+    {
+        if (!MountTable.IsGrowableFilesystem(dedicatedMount.Mount.FileSystem) || dedicatedMount.Mount.IsReadOnly)
+        {
+            return ResolveOciVolume(dedicatedMount, verifiedNodes, statPath, snapshot, identity: null, DirectorySnapshots.Empty);
+        }
+
+        var outcome = MountTable.ReadUsableVolumeIdentity(verifiedNodes);
+        return outcome switch
+        {
+            UsableVolumeIdentity usable => ResolveOciVolume(dedicatedMount, verifiedNodes, statPath, snapshot, usable.Identity, usable.Snapshots),
+            NoUsableVolumeIdentity none => ResolveOciVolume(dedicatedMount, verifiedNodes, statPath, snapshot, identity: null, none.Snapshots),
+            DirectoryScanFailed failed => ReportVolumeProbeFailed(statPath, failed.Message),
+        };
+    }
+
+    private IReadOnlyList<VolumeInfo>? ResolveOciVolume(
+        DedicatedBlockMount dedicatedMount,
+        VerifiedBlockNodes verifiedNodes,
+        string statPath,
+        DirectoryMountSnapshot snapshot,
+        string? identity,
+        DirectorySnapshots directories)
+    {
+        return MountTable.FindOciDevice(verifiedNodes) switch
+        {
+            OciDeviceFound found =>
+                BuildVerifiedVolume(dedicatedMount, verifiedNodes, statPath, snapshot, found.Path, identity, directories.Concat(found.Snapshots)),
+            OciDeviceAbsent absent =>
+                BuildVerifiedVolume(dedicatedMount, verifiedNodes, statPath, snapshot, verifiedNodes.DiskPath, identity, directories.Concat(absent.Snapshots)),
+            DirectoryScanFailed failed => ReportVolumeProbeFailed(statPath, failed.Message),
+        };
+    }
+
+    private IReadOnlyList<VolumeInfo>? BuildVerifiedVolume(
+        DedicatedBlockMount dedicatedMount,
+        VerifiedBlockNodes verifiedNodes,
+        string statPath,
+        DirectoryMountSnapshot snapshot,
+        string device,
+        string? identity,
+        DirectorySnapshots directories)
+    {
+        if (MountTable.FindChangedVolumeBinding(dedicatedMount, verifiedNodes, statPath, directories) is { } changed)
+        {
+            return ReportVolumeProbeFailed(statPath, changed);
+        }
+
+        return
+        [
+            new VolumeInfo(
+                statPath,
+                device,
+                (int)Math.Round(snapshot.TotalBytes / BytesPerGiB),
+                Math.Round(snapshot.UsedPct, 2),
+                identity),
+        ];
+    }
+
+    private static IReadOnlyList<VolumeInfo> ResolveNonDedicatedVolumes(
+        IReadOnlyList<MountEntry> mounts,
+        string normalizedDataPath,
+        string statPath,
+        DirectoryMountSnapshot snapshot)
+    {
+        if (string.Equals(normalizedDataPath, NodePaths.DataVolume, StringComparison.Ordinal))
         {
             return [];
         }
 
-        var drive = new DriveInfo(normalizedDataPath);
+        var pathIdentity = snapshot.Identity;
+        var mount = pathIdentity.MountId is { } mountId ? MountTable.FindContaining(mounts, mountId) : null;
+        var mountedBlockDevice = mount is { MajorMinor: { } majorMinor }
+            && string.Equals(pathIdentity.MajorMinor, majorMinor, StringComparison.Ordinal)
+            ? MountTable.TryResolveBlockDevice(majorMinor)
+            : null;
+        var device = mountedBlockDevice
+            ?? (mount is null || mount.Device.StartsWith("/dev/", StringComparison.Ordinal) ? "unknown" : mount.Device);
         return
         [
             new VolumeInfo(
-                options.DataVolumePath,
-                mount?.Device ?? "unknown",
-                (int)Math.Round(drive.TotalSize / BytesPerGiB),
-                Math.Round(DiskUsedPct(normalizedDataPath), 2)),
+                statPath,
+                device,
+                (int)Math.Round(snapshot.TotalBytes / BytesPerGiB),
+                Math.Round(snapshot.UsedPct, 2)),
         ];
+    }
+
+    private IReadOnlyList<VolumeInfo>? ReportVolumeProbeFailed(string path, string reason)
+    {
+        AgentLog.VolumeProbeFailed(logger, path, reason);
+        return null;
+    }
+
+    private IReadOnlyList<VolumeInfo>? ReportMountTableReadFailed(string reason)
+    {
+        AgentLog.MountTableReadFailed(logger, reason);
+        return null;
     }
 
     public async Task<NodeCapacity> ReadCapacityAsync(CancellationToken cancellationToken)
     {
         var memory = await ReadMemInfoAsync(cancellationToken);
-        var volumes = await ReadVolumesAsync(cancellationToken);
-        var diskPath = volumes.Count > 0 ? options.DataVolumePath : "/";
-        var drive = new DriveInfo(diskPath);
+        var reading = ReadVolumes();
+        var volumes = reading.Volumes;
+        var diskTotalGiB = volumes is { Count: > 0 }
+            ? volumes[0].SizeGiB
+            : reading.MeasuredDataTotalGiB ?? (int)Math.Round(new DriveInfo("/").TotalSize / BytesPerGiB);
         return new NodeCapacity(
             Environment.ProcessorCount * 1000,
             (int)(memory.TotalKiB / 1024),
-            (int)Math.Round(drive.TotalSize / BytesPerGiB),
+            diskTotalGiB,
             volumes);
     }
 

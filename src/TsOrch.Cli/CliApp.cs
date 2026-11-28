@@ -1,4 +1,5 @@
 using System.Reflection;
+using TsOrch.Agent;
 
 namespace TsOrch.Cli;
 
@@ -22,6 +23,11 @@ internal static class CliApp
         {
             console.Out.WriteLine(Version);
             return ExitCodes.Ok;
+        }
+
+        if (SysfsHelperCommand.Handles(args))
+        {
+            return SysfsHelperCommand.Run(args, console.Out, console.Error);
         }
 
         if (CliCommands.Find(args[0]) is not { } command)

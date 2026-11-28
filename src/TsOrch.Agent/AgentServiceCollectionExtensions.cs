@@ -51,6 +51,7 @@ public static class AgentServiceCollectionExtensions
             services.AddSingleton<ContainerReconciler>();
             services.AddSingleton<ImageGarbageCollector>();
             services.AddSingleton<HostMetricsCollector>();
+            services.AddSingleton<VolumeGrowthExecutor>();
             services.AddSingleton<NodeMaintenance>();
             services.AddSingleton<NodeEnrollment>();
             services.AddSingleton<EdgeConfigWriter>();
